@@ -13,9 +13,6 @@
 
 ---
 
-# Finora
-*Illuminate your financial transactions with real-time insight.*
-
 
 
 ## 1. Overview
