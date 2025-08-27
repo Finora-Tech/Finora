@@ -1,3 +1,18 @@
+<p align="center">
+  <img src="docs/logo.png" alt="Finora Logo" width="200"/>
+</p>
+
+<h1 align="center">FINORA</h1>
+
+<p align="center"><b>Finance Meets Aurora</b></p>
+
+<p align="center">
+  A real-time financial transaction monitoring platform powered by 
+  <br/>Spring Boot, Kafka, Prometheus, Grafana, and Elasticsearch.
+</p>
+
+---
+
 # Finora
 *Illuminate your financial transactions with real-time insight.*
 
