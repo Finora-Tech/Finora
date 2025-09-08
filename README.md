@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/finora-logo.jpg" alt="Finora Logo" width="300"/>
+  <img src="Finora_logo.jpg" alt="Finora Logo" width="300"/>
 </p>
 
 <h1 align="center">FINORA</h1>
@@ -58,10 +58,8 @@ flowchart LR
     Kafka --> Compensator
   end
 ````
-- **Ingestor** (수집기): Kafka에서 발행된 이벤트를 “받아들이고” 필요한 저장소(DB/ES)에 반영
-- **Compensator** (보상 처리기): 거래가 실패했을 때 되돌리거나 맞춰줌
-- **Prometheus** (수집&저장): 애플리케이션에서 보이는 지표(Metrics) 수집하여 시계열 DB에 저장
-- **Grafana** (시각화&대시보드): 가져온 시계열 데이터 시각화
+
+
 
 ## 4. Tech Stack
 
@@ -71,8 +69,7 @@ flowchart LR
 * **Search**: Elasticsearch (or OpenSearch)
 * **Monitoring**: Micrometer, Prometheus, Grafana
 * **Infra**: Docker Compose, Testcontainers (for integration tests)
-* **PostgreSQL**: 정합성을 보장하는 "정식 원장"
-* Elasticsearch: 거래 데이터를 검색/분석하기 위한 보조 저장소
+
 
 
 ## 5. Project Structure
