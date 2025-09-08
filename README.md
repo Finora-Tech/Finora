@@ -1,8 +1,8 @@
-<h1 align="center">FINORA</h1>
-
 <p align="center">
   <img src="docs/finora-logo.jpg" alt="Finora Logo" width="300"/>
 </p>
+
+<h1 align="center">FINORA</h1>
 
 <p align="center"><b>Finance Meets Aurora</b></p>
 
