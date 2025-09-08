@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.png" alt="Finora Logo" width="200"/>
+  <img src="Finora_logo.jpg" alt="Finora Logo" width="300"/>
 </p>
 
 <h1 align="center">FINORA</h1>
