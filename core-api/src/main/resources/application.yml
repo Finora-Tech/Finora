@@ -4,8 +4,8 @@ server:
 spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/finora
-    username: sa
-    password: sa
+    username: finora
+    password: finora
   jpa:
     hibernate:
       ddl-auto: validate
