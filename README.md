@@ -65,7 +65,7 @@ flowchart LR
 
 ## 4. Tech Stack
 
-* **Backend**: Java 17, Spring Boot 3, Spring Data JPA
+* **Backend**: jdk 21, Spring Boot 3.5.5, Spring Data JPA
 * **Messaging**: Apache Kafka
 * **Database**: PostgreSQL
 * **Search**: Elasticsearch (or OpenSearch)
@@ -110,12 +110,13 @@ docker-compose up -d
 
 ## 7. Roadmap
 
-* [ ] 0주차: 레포/Notion 세팅, 코드 컨벤션, README, UI 레퍼런스 수집
-* [ ] 1–2주차: CRUD API + Micrometer 기초 관측
-* [ ] 3–4주차: Kafka 이벤트 발행/소비 + DB/ES 연동
-* [ ] 5–6주차: 검색 API + Grafana 대시보드 고도화
-* [ ] 7주차: 이상 탐지(룰 기반 Alert)
-* [ ] 8주차: 보상 거래 시뮬레이션 + 문서화
+* [x] [1주차](./docs/sprint_week1): 레포/Notion 세팅, 코드 컨벤션, README, UI 레퍼런스 수집
+* [ ] [2주차](./docs/sprint_week1): 프론트앤드 개발, API/ERD 설계
+* [ ] 3–4주차: CRUD API + Micrometer 기초 관측
+* [ ] 5–6주차: Kafka 이벤트 발행/소비 + DB/ES 연동
+* [ ] 7–8주차: 검색 API + Grafana 대시보드 고도화
+* [ ] 9주차: 이상 탐지(룰 기반 Alert)
+* [ ] 10주차: 보상 거래 시뮬레이션 + 문서화
 
 
 
