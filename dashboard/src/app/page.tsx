@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
-import { Moon, Sun, Search, Bell } from "lucide-react";
+import { Moon, Sun, Search, Bell, TrendingUp, CheckCircle, Clock, Zap } from "lucide-react";
 
 /**
  * Finora UI Mockup v1 – Overview Dashboard (JSX)
@@ -13,9 +13,42 @@ import { Moon, Sun, Search, Bell } from "lucide-react";
  */
 
 // -------------------------------
+// Types
+// -------------------------------
+interface Transaction {
+    id: string;
+    time: string;
+    amount: string;
+    status: 'OK' | 'ERROR';
+    channel: 'OpenAPI' | 'Internal';
+}
+
+interface KPI {
+    label: string;
+    value: string;
+    delta?: string;
+    icon?: any;
+    gradient?: string;
+    bgGradient?: string;
+    glowColor?: string;
+}
+
+// -------------------------------
 // Filtering helper + self-tests
 // -------------------------------
-function filterRows(rows, query) {
+// NOTE: Avoid SSR/CSR mismatch by eliminating nondeterminism.
+// We'll use a tiny seeded PRNG and fixed base time for any mock data.
+function mulberry32(seed: number) {
+    let t = seed >>> 0;
+    return function () {
+        t += 0x6D2B79F5;
+        let r = Math.imul(t ^ (t >>> 15), 1 | t);
+        r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
+        return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+function filterRows(rows: Transaction[], query: string): Transaction[] {
     if (!query) return rows;
     const q = String(query).trim().toLowerCase();
     return rows.filter((r) =>
@@ -29,7 +62,7 @@ function filterRows(rows, query) {
 function runSelfTests() {
     if (typeof window === "undefined") return; // client-only
     try {
-        const sample = [
+        const sample: Transaction[] = [
             { id: "TX-1", time: "10:00:00", amount: "1000", status: "OK",    channel: "OpenAPI" },
             { id: "TX-2", time: "10:00:01", amount: "2000", status: "ERROR", channel: "Internal" },
             { id: "TX-3", time: "10:00:02", amount: "3000", status: "OK",    channel: "Internal" },
@@ -48,8 +81,8 @@ function runSelfTests() {
         console.assert(filterRows(sample, "tx-3").length === 1, "Test7 failed: id case-insensitive");
         console.assert(filterRows(sample, "INTERNAL").length === 2, "Test8 failed: channel case-insensitive");
 
-        if (!window.__finora_tests_ran__) {
-            window.__finora_tests_ran__ = true;
+        if (!(window as any).__finora_tests_ran__) {
+            (window as any).__finora_tests_ran__ = true;
             console.log("[Finora] Self-tests passed");
         }
     } catch (e) {
@@ -64,11 +97,11 @@ runSelfTests();
 function getURL() {
     return new URL(window.location.href);
 }
-function readParam(name, fallback) {
+function readParam(name: string, fallback: string) {
     const url = getURL();
     return url.searchParams.get(name) ?? fallback;
 }
-function writeParam(name, value) {
+function writeParam(name: string, value: string) {
     const url = getURL();
     if (value == null || value === "") url.searchParams.delete(name);
     else url.searchParams.set(name, value);
@@ -89,11 +122,13 @@ export default function FinoraDashboardMockup() {
     const [search, setSearch] = useState(initialSearch);
     const [tab, setTab] = useState(initialTab); // 'overview' | 'transactions' | 'alerts'
     const [dark, setDark] = useState(false);
+    const [showNotifications, setShowNotifications] = useState(false);
 
     const firstThemeApplied = useRef(false);
+    const notificationRef = useRef<HTMLDivElement>(null);
 
     // Apply theme to <html> and meta theme-color
-    const applyTheme = (isDark) => {
+    const applyTheme = (isDark: boolean) => {
         const root = document.documentElement;
         if (isDark) root.classList.add("dark");
         else root.classList.remove("dark");
@@ -123,7 +158,7 @@ export default function FinoraDashboardMockup() {
         const savedInUrl = readParam('theme', '');
         if (savedInUrl) return; // explicit URL wins
         const mq = window.matchMedia('(prefers-color-scheme: dark)');
-        const handler = (e) => {
+        const handler = (e: MediaQueryListEvent) => {
             // only auto-follow if user hasn't manually toggled (no localStorage override)
             const saved = localStorage.getItem('finora.theme');
             if (saved) return;
@@ -150,61 +185,163 @@ export default function FinoraDashboardMockup() {
         return () => clearTimeout(id);
     }, [search]);
 
-    const kpis = useMemo(
-        () => [
-            { label: "오늘 거래건수", value: "12,840", delta: "+3.2%" },
-            { label: "체결 지연(ms)", value: "182", delta: "-5.4%" },
-            { label: "오류율(%)", value: "0.08", delta: "-0.01%" },
-            { label: "평균 처리량(tps)", value: "1,240", delta: "+1.1%" },
-        ],
-        []
-    );
+    // Close notifications on outside click or ESC key
+    useEffect(() => {
+        function handleClickOutside(event: MouseEvent) {
+            if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) {
+                setShowNotifications(false);
+            }
+        }
+
+        function handleKeyDown(event: KeyboardEvent) {
+            if (event.key === 'Escape') {
+                setShowNotifications(false);
+            }
+        }
+
+        if (showNotifications) {
+            document.addEventListener('mousedown', handleClickOutside);
+            document.addEventListener('keydown', handleKeyDown);
+            return () => {
+                document.removeEventListener('mousedown', handleClickOutside);
+                document.removeEventListener('keydown', handleKeyDown);
+            };
+        }
+    }, [showNotifications]);
 
     const txRows = useMemo(
-        () =>
-            Array.from({ length: 12 }).map((_, i) => ({
-                id: `TX-${1000 + i}`,
-                time: new Date(Date.now() - i * 1000 * 41).toLocaleTimeString(),
-                amount: (Math.random() * 1000000).toFixed(0),
-                status: Math.random() > 0.95 ? "ERROR" : "OK",
-                channel: Math.random() > 0.5 ? "OpenAPI" : "Internal",
-            })),
+        (): Transaction[] => {
+            const rng = mulberry32(42); // deterministic across server/client
+            const base = Date.UTC(2024, 0, 1, 12, 0, 0); // fixed UTC timebase to avoid TZ differences
+            return Array.from({ length: 12 }).map((_, i) => {
+                const ts = new Date(base - i * 41000); // 41s step
+                const amount = Math.floor(rng() * 1_000_000);
+                const isError = rng() > 0.95;
+                const isOpenAPI = rng() > 0.5;
+                return {
+                    id: `TX-${1000 + i}`,
+                    time: ts.toLocaleTimeString('ko-KR', { hour12: true, timeZone: 'UTC' }),
+                    amount: String(amount),
+                    status: isError ? 'ERROR' : 'OK',
+                    channel: isOpenAPI ? 'OpenAPI' : 'Internal',
+                };
+            });
+        },
         []
     );
 
     const filteredRows = useMemo(() => filterRows(txRows, search), [txRows, search]);
 
+    // KPI 데이터 정의 - Aurora 테마 (가독성 개선)
+    const kpis = useMemo(() => [
+        { 
+            label: "총 처리량", 
+            value: "12,847", 
+            delta: "+2.3% vs 어제", 
+            icon: TrendingUp,
+            gradient: "from-emerald-400 via-cyan-400 to-teal-500",
+            bgGradient: "from-emerald-400/5 via-cyan-400/3 to-teal-500/5",
+            glowColor: "emerald-400/20"
+        },
+        { 
+            label: "성공률", 
+            value: "99.2%", 
+            delta: "+0.1% vs 어제", 
+            icon: CheckCircle,
+            gradient: "from-cyan-400 via-blue-400 to-indigo-500",
+            bgGradient: "from-cyan-400/5 via-blue-400/3 to-indigo-500/5",
+            glowColor: "cyan-400/20"
+        },
+        { 
+            label: "평균 지연", 
+            value: "142ms", 
+            delta: "-8ms vs 어제", 
+            icon: Clock,
+            gradient: "from-violet-400 via-purple-400 to-fuchsia-500",
+            bgGradient: "from-violet-400/5 via-purple-400/3 to-fuchsia-500/5",
+            glowColor: "violet-400/20"
+        },
+        { 
+            label: "활성 채널", 
+            value: "2", 
+            delta: "OpenAPI, Internal", 
+            icon: Zap,
+            gradient: "from-pink-400 via-rose-400 to-red-400",
+            bgGradient: "from-pink-400/5 via-rose-400/3 to-red-400/5",
+            glowColor: "pink-400/20"
+        }
+    ], []);
+
     return (
         <div className={dark ? "dark" : ""}>
-            <div className="min-h-screen bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100 transition-colors duration-300 motion-reduce:transition-none">
-                {/* Top App Bar */}
-                <header className="sticky top-0 z-20 border-b border-neutral-200/60 dark:border-neutral-800 bg-white/60 dark:bg-neutral-950/60 backdrop-blur supports-[backdrop-filter]:bg-white/60">
-                    <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 h-16 flex items-center gap-4">
-                        <div className="flex items-center gap-3">
-                            {/* Aurora logo */}
-                            <div className="size-8 rounded-xl bg-gradient-to-tr from-emerald-400 via-cyan-400 to-violet-500 shadow-sm ring-1 ring-white/50 dark:ring-white/10" />
-                            {/* Wordmark */}
-                            <div className="font-bold text-lg tracking-tight">Finora</div>
-                            <div className="hidden sm:block text-sm text-neutral-500">Finance Meets Aurora</div>
+            <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50/30 to-cyan-50/20 dark:from-slate-950 dark:via-indigo-950/50 dark:to-emerald-950/30 text-neutral-900 dark:text-neutral-100 transition-colors duration-500 motion-reduce:transition-none relative overflow-hidden">
+                {/* Aurora Background Effects - Reduced for readability */}
+                <div className="absolute inset-0 overflow-hidden pointer-events-none">
+                    {/* Primary Aurora Wave - Much more subtle */}
+                    <div className="absolute -top-1/2 -left-1/2 w-[200%] h-[200%] bg-gradient-conic from-emerald-500/3 via-cyan-500/5 to-violet-500/3 dark:from-emerald-400/5 dark:via-cyan-400/7 dark:to-violet-400/5 animate-spin [animation-duration:60s] opacity-20" />
+                    
+                    {/* Secondary Aurora Glow - Reduced */}
+                    <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-radial from-pink-500/5 via-purple-500/3 to-transparent dark:from-pink-400/7 dark:via-purple-400/5 opacity-25 animate-pulse [animation-duration:4s]" />
+                    
+                    {/* Tertiary Aurora Shimmer - Reduced */}
+                    <div className="absolute bottom-0 left-0 w-80 h-80 bg-gradient-radial from-cyan-500/4 via-emerald-500/3 to-transparent dark:from-cyan-400/6 dark:via-emerald-400/5 opacity-30 animate-pulse [animation-duration:6s] [animation-delay:2s]" />
+                    
+                    {/* Aurora Particles - Much more subtle */}
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_80%,rgba(16,185,129,0.04),transparent_50%)] dark:bg-[radial-gradient(circle_at_20%_80%,rgba(16,185,129,0.06),transparent_50%)]" />
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_20%,rgba(139,92,246,0.04),transparent_50%)] dark:bg-[radial-gradient(circle_at_80%_20%,rgba(139,92,246,0.06),transparent_50%)]" />
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_60%_60%,rgba(6,182,212,0.03),transparent_50%)] dark:bg-[radial-gradient(circle_at_60%_60%,rgba(6,182,212,0.05),transparent_50%)]" />
+                </div>
+                {/* Top App Bar - Cleaned up */}
+                <header className="sticky top-0 z-20 border-b border-neutral-200/40 dark:border-neutral-800/40 bg-white/90 dark:bg-neutral-950/90 backdrop-blur-xl shadow-sm">
+                    <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 h-16 flex items-center">
+                        {/* Logo & Brand */}
+                        <div className="flex items-center gap-4">
+                            <div className="size-9 rounded-xl bg-gradient-to-tr from-emerald-400 via-cyan-400 to-violet-500 shadow-lg relative overflow-hidden group">
+                                {/* Single subtle shimmer */}
+                                <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/20 to-transparent animate-pulse [animation-duration:3s]" />
+                            </div>
+                            <div>
+                                <div className="font-bold text-lg text-neutral-900 dark:text-white">
+                                    Finora
+                                </div>
+                                <div className="hidden sm:block text-xs text-neutral-600 dark:text-neutral-400 -mt-0.5">
+                                    Finance Meets Aurora
+                                </div>
+                            </div>
                         </div>
 
-                        <nav className="ml-6 hidden md:flex items-center gap-4">
-                            <NavItem active={tab === "overview"} onClick={() => setTab("overview")}>
+                        {/* Navigation */}
+                        <nav className="ml-8 hidden md:flex items-center gap-1">
+                            <NavItem active={tab === "overview"} onClick={() => {
+                                console.log('Switching to Overview tab');
+                                setTab("overview");
+                            }}>
                                 Overview
                             </NavItem>
-                            <NavItem active={tab === "transactions"} onClick={() => setTab("transactions")}>
+                            <NavItem active={tab === "transactions"} onClick={() => {
+                                console.log('Switching to Transactions tab');
+                                setTab("transactions");
+                            }}>
                                 Transactions
                             </NavItem>
-                            <NavItem active={tab === "alerts"} onClick={() => setTab("alerts")}>
+                            <NavItem active={tab === "alerts"} onClick={() => {
+                                console.log('Switching to Alerts tab');
+                                setTab("alerts");
+                            }}>
                                 Alerts
                             </NavItem>
                         </nav>
 
-                        <div className="ml-auto flex items-center gap-2">
+                        {/* Controls */}
+                        <div className="ml-auto flex items-center gap-3">
+                            {/* Time Range Selector */}
                             <select
-                                className="h-9 rounded-lg border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                                className="h-9 rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 px-3 text-sm text-neutral-700 dark:text-neutral-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/50 transition-colors"
                                 value={range}
-                                onChange={(e) => setRange(e.target.value)}
+                                onChange={(e) => {
+                                    console.log('Range changed to:', e.target.value);
+                                    setRange(e.target.value);
+                                }}
                             >
                                 <option value="today">오늘</option>
                                 <option value="24h">최근 24시간</option>
@@ -212,37 +349,102 @@ export default function FinoraDashboardMockup() {
                                 <option value="30d">최근 30일</option>
                             </select>
 
+                            {/* Search Input */}
                             <div className="relative">
-                                <Search className="absolute left-2 top-1/2 -translate-y-1/2" size={16} />
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" size={14} />
                                 <input
                                     value={search}
-                                    onChange={(e) => setSearch(e.target.value)}
-                                    placeholder="검색: TX ID, 상태, 채널 등"
-                                    className="h-9 w-56 pl-7 rounded-lg border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                                    onChange={(e) => {
+                                        console.log('Search query changed to:', e.target.value);
+                                        setSearch(e.target.value);
+                                    }}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            console.log('Search submitted with query:', search);
+                                            e.currentTarget.blur();
+                                        }
+                                    }}
+                                    placeholder="검색..."
+                                    aria-label="트랜잭션 검색"
+                                    className="h-9 w-48 pl-8 pr-3 rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-sm text-neutral-700 dark:text-neutral-300 placeholder:text-neutral-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/50 transition-colors"
                                 />
                             </div>
 
+                            {/* Theme Toggle */}
                             <button
-                                onClick={() => setDark((d) => !d)}
+                                onClick={() => {
+                                    console.log('Theme toggled to:', !dark ? 'dark' : 'light');
+                                    setDark((d) => !d);
+                                }}
                                 aria-pressed={dark}
                                 title={dark ? "라이트 모드로" : "다크 모드로"}
-                                className="h-9 px-3 inline-flex items-center gap-1.5 rounded-lg border border-neutral-300 dark:border-neutral-800 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                                className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/50 transition-colors"
                             >
                                 {dark ? <Sun size={16} /> : <Moon size={16} />}
-                                <span className="hidden sm:inline">{dark ? "라이트" : "다크"}</span>
                             </button>
 
-                            <button
-                                className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-neutral-300 dark:border-neutral-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
-                                title="알림"
-                            >
-                                <Bell size={16} />
-                            </button>
+                            {/* Notifications */}
+                            <div className="relative" ref={notificationRef}>
+                                <button
+                                    onClick={() => {
+                                        console.log('Notifications toggled:', !showNotifications);
+                                        setShowNotifications(!showNotifications);
+                                    }}
+                                    className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/50 transition-colors relative"
+                                    title="알림"
+                                >
+                                    <Bell size={16} />
+                                    <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full" />
+                                </button>
+                                
+                                {/* Notification Dropdown */}
+                                {showNotifications && (
+                                    <div className="absolute right-0 top-full mt-2 w-80 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-600 rounded-lg shadow-lg z-50">
+                                        <div className="p-4 border-b border-neutral-200 dark:border-neutral-600">
+                                            <h3 className="text-sm font-semibold text-neutral-900 dark:text-white">알림</h3>
+                                        </div>
+                                        <div className="max-h-64 overflow-y-auto">
+                                            <div className="p-3 hover:bg-neutral-50 dark:hover:bg-neutral-700 border-b border-neutral-100 dark:border-neutral-700">
+                                                <div className="flex items-start gap-3">
+                                                    <div className="w-2 h-2 bg-red-500 rounded-full mt-2 flex-shrink-0" />
+                                                    <div className="flex-1">
+                                                        <p className="text-sm font-medium text-neutral-900 dark:text-white">오류율 임계치 초과</p>
+                                                        <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-1">10분 전 · 구간: /payments/authorize</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div className="p-3 hover:bg-neutral-50 dark:hover:bg-neutral-700 border-b border-neutral-100 dark:border-neutral-700">
+                                                <div className="flex items-start gap-3">
+                                                    <div className="w-2 h-2 bg-amber-500 rounded-full mt-2 flex-shrink-0" />
+                                                    <div className="flex-1">
+                                                        <p className="text-sm font-medium text-neutral-900 dark:text-white">평균 지연 상승</p>
+                                                        <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-1">18분 전 · OpenAPI Channel</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div className="p-3 hover:bg-neutral-50 dark:hover:bg-neutral-700">
+                                                <div className="flex items-start gap-3">
+                                                    <div className="w-2 h-2 bg-cyan-500 rounded-full mt-2 flex-shrink-0" />
+                                                    <div className="flex-1">
+                                                        <p className="text-sm font-medium text-neutral-900 dark:text-white">신규 배포 완료</p>
+                                                        <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-1">30분 전 · core-api v0.2.1</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="p-3 border-t border-neutral-200 dark:border-neutral-600">
+                                            <button className="text-xs text-cyan-600 dark:text-cyan-400 hover:text-cyan-800 dark:hover:text-cyan-300 font-medium">
+                                                모든 알림 보기
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </header>
 
-                <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6">
+                <main className="relative z-10 mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
                     {tab === "overview" && <Overview kpis={kpis} rows={filteredRows} />}
                     {tab === "transactions" && <Transactions rows={filteredRows} />}
                     {tab === "alerts" && <Alerts />}
@@ -252,15 +454,15 @@ export default function FinoraDashboardMockup() {
     );
 }
 
-function NavItem({ active, children, onClick }) {
+function NavItem({ active, children, onClick }: { active: boolean; children: React.ReactNode; onClick: () => void }) {
     return (
         <button
             onClick={onClick}
             className={[
-                "h-9 px-3 rounded-lg text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400",
+                "h-9 px-4 rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/50",
                 active
-                    ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
-                    : "hover:bg-neutral-100 dark:hover:bg-neutral-900",
+                    ? "bg-neutral-900 dark:bg-white text-white dark:text-neutral-900"
+                    : "text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800",
             ].join(" ")}
         >
             {children}
@@ -268,27 +470,61 @@ function NavItem({ active, children, onClick }) {
     );
 }
 
-function Overview({ kpis, rows }) {
+function Overview({ kpis, rows }: { kpis: KPI[]; rows: Transaction[] }) {
     return (
         <div className="grid gap-6">
-            {/* KPI Cards */}
-            <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                {kpis.map((k, i) => (
-                    <motion.div
-                        key={k.label}
-                        initial={{ opacity: 0, y: 8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: i * 0.05 }}
-                    >
-                        <Card>
-                            <div className="text-sm text-neutral-500 dark:text-neutral-400">{k.label}</div>
-                            <div className="text-3xl font-bold mt-1">{k.value}</div>
-                            {k.delta ? (
-                                <div className="text-xs mt-1 text-neutral-500 dark:text-neutral-400">{k.delta}</div>
-                            ) : null}
-                        </Card>
-                    </motion.div>
-                ))}
+            {/* KPI Cards - Redesigned */}
+            <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+                {kpis.map((k, i) => {
+                    const IconComponent = k.icon;
+                    return (
+                        <motion.div
+                            key={k.label}
+                            initial={{ opacity: 0, y: 30 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: i * 0.12, type: "spring", stiffness: 120, damping: 15 }}
+                            className="group"
+                        >
+                            <div className="relative bg-white dark:bg-neutral-900 rounded-3xl p-7 shadow-xl hover:shadow-2xl transition-all duration-500 border border-neutral-100 dark:border-neutral-800 group-hover:-translate-y-1">
+                                
+                                {/* Top Row: Icon + Label */}
+                                <div className="flex items-start justify-between mb-6">
+                                    <div className={`p-3 rounded-2xl bg-gradient-to-br ${k.gradient} shadow-lg group-hover:shadow-xl transition-shadow duration-300`}>
+                                        <IconComponent size={22} className="text-white" />
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{k.label}</div>
+                                    </div>
+                                </div>
+
+                                {/* Value */}
+                                <div className="mb-4">
+                                    <div className="text-3xl font-bold text-neutral-900 dark:text-white tracking-tight">
+                                        {k.value}
+                                    </div>
+                                </div>
+
+                                {/* Delta Badge */}
+                                {k.delta && (
+                                    <div className="flex items-center">
+                                        <div className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${
+                                            k.delta.startsWith('+') 
+                                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400'
+                                                : k.delta.startsWith('-')
+                                                ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                                                : 'bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300'
+                                        }`}>
+                                            {k.delta}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Bottom accent line */}
+                                <div className={`absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r ${k.gradient} rounded-b-3xl opacity-30 group-hover:opacity-50 transition-opacity duration-300`} />
+                            </div>
+                        </motion.div>
+                    );
+                })}
             </section>
 
             {/* Realtime Chart Placeholder */}
@@ -329,21 +565,35 @@ function Overview({ kpis, rows }) {
                 </Card>
             </section>
 
-            {/* Recent Transactions */}
+            {/* Recent Transactions - Redesigned */}
             <section>
-                <Card>
-                    <div className="flex items-center justify-between mb-3">
-                        <h2 className="text-lg font-semibold">최근 트랜잭션</h2>
-                        <div className="text-xs text-neutral-500">테이블 영역(추후 TanStack Table)</div>
+                <div className="bg-white dark:bg-neutral-900 rounded-3xl shadow-xl border border-neutral-100 dark:border-neutral-800 overflow-hidden">
+                    <div className="p-8 border-b border-neutral-100 dark:border-neutral-800">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <h2 className="text-2xl font-bold text-neutral-900 dark:text-white mb-1">최근 트랜잭션</h2>
+                                <p className="text-sm text-neutral-500 dark:text-neutral-400">실시간으로 업데이트되는 거래 내역</p>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400">
+                                    총 {rows.length}개 표시
+                                </div>
+                                <button className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-emerald-500 via-cyan-500 to-blue-500 hover:from-emerald-600 hover:via-cyan-600 hover:to-blue-600 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl">
+                                    전체 보기
+                                </button>
+                            </div>
+                        </div>
                     </div>
-                    <Table rows={rows} />
-                </Card>
+                    <div className="p-8">
+                        <Table rows={rows} />
+                    </div>
+                </div>
             </section>
         </div>
     );
 }
 
-function Transactions({ rows }) {
+function Transactions({ rows }: { rows: Transaction[] }) {
     return (
         <div className="grid gap-6">
             <Card>
@@ -396,7 +646,7 @@ function Alerts() {
                         <span className="mt-1 size-2 rounded-full bg-amber-500" />
                         <div>
                             <div className="font-medium">지연 상승</div>
-                            <div className="text-neutral-500 text-xs">08:57 · search-api</div>
+                            <div className="text-neutral-500 text-xs">08:55 · payment-gateway</div>
                         </div>
                     </li>
                 </ul>
@@ -405,102 +655,184 @@ function Alerts() {
     );
 }
 
-function Card({ children, className = "" }) {
+function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
     return (
-        <div className={"rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4 " + className}>
-            {children}
+        <div className={`relative rounded-2xl border border-neutral-200/50 dark:border-neutral-800/50 bg-white/60 dark:bg-neutral-900/60 backdrop-blur-sm p-6 shadow-lg hover:shadow-xl transition-all duration-300 hover:border-neutral-300/50 dark:hover:border-neutral-700/50 hover:-translate-y-1 overflow-hidden ${className}`}>
+            <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-white/5 to-transparent pointer-events-none" />
+            <div className="relative z-10">
+                {children}
+            </div>
         </div>
     );
 }
 
 function ChartPlaceholder() {
+    const bars = useMemo(() => {
+        const rng = mulberry32(777); // deterministic heights
+        const auroraColors = [
+            "from-emerald-400/70 to-cyan-400/70",
+            "from-cyan-400/70 to-blue-400/70", 
+            "from-blue-400/70 to-indigo-400/70",
+            "from-indigo-400/70 to-violet-400/70",
+            "from-violet-400/70 to-purple-400/70",
+            "from-purple-400/70 to-pink-400/70"
+        ];
+        
+        return Array.from({ length: 24 }).map((_, i) => ({
+            height: 20 + rng() * 80,
+            delay: i * 0.05,
+            gradient: auroraColors[i % auroraColors.length]
+        }));
+    }, []);
+    
     return (
-        <div className="h-64 w-full rounded-xl bg-neutral-100 dark:bg-neutral-800 grid grid-cols-12 items-end gap-1 p-3">
-            {Array.from({ length: 40 }).map((_, i) => (
-                <div
+        <div className="h-64 w-full rounded-2xl bg-white/90 dark:bg-neutral-900/90 backdrop-blur-sm border border-neutral-200/60 dark:border-neutral-700/60 flex items-end gap-1 p-4 overflow-hidden relative group">
+            {/* Subtle background gradient */}
+            <div className="absolute inset-0 bg-gradient-to-t from-neutral-50/30 via-transparent to-transparent dark:from-neutral-800/30 pointer-events-none" />
+            
+            {/* Minimal floating accent */}
+            <div className="absolute top-4 right-4 w-1.5 h-1.5 bg-gradient-to-r from-emerald-400 to-cyan-400 rounded-full opacity-30 animate-pulse" />
+            
+            {bars.map((bar, i) => (
+                <motion.div
                     key={i}
-                    className="rounded-t bg-neutral-300/80 dark:bg-neutral-700"
-                    style={{ height: `${20 + Math.random() * 80}%` }}
-                />
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: `${bar.height}%`, opacity: 1 }}
+                    transition={{ delay: bar.delay, duration: 0.8, ease: "easeOut" }}
+                    className={`flex-1 rounded-t-lg bg-gradient-to-t ${bar.gradient} shadow-lg relative overflow-hidden group-hover:shadow-xl transition-shadow duration-300`}
+                >
+                    {/* Aurora shimmer effect */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-transparent via-white/30 to-white/50 animate-pulse [animation-duration:3s]" />
+                    <div className={`absolute inset-0 bg-gradient-to-t from-transparent to-white/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500`} />
+                </motion.div>
             ))}
         </div>
     );
 }
 
-function Table({ rows }) {
+function Table({ rows }: { rows: Transaction[] }) {
     if (!rows || rows.length === 0) {
         return (
-            <div className="rounded-xl border border-dashed border-neutral-300 dark:border-neutral-800 p-10 text-center text-sm text-neutral-500">
-                조건에 맞는 트랜잭션이 없습니다.
+            <div className="rounded-2xl border border-dashed border-neutral-300/50 dark:border-neutral-700/50 bg-gradient-to-br from-neutral-50/50 to-neutral-100/50 dark:from-neutral-900/50 dark:to-neutral-800/50 backdrop-blur-sm p-12 text-center">
+                <div className="text-4xl mb-4 opacity-20">📊</div>
+                <div className="text-sm font-medium text-neutral-500 dark:text-neutral-400">
+                    조건에 맞는 트랜잭션이 없습니다.
+                </div>
             </div>
         );
     }
     return (
-        <div className="overflow-x-auto rounded-xl border border-neutral-200 dark:border-neutral-800">
-            <table className="min-w-full text-sm">
-                <thead className="bg-neutral-50 dark:bg-neutral-950/40 text-left">
-                <tr className="border-b border-neutral-200 dark:border-neutral-800">
-                    <Th>TX ID</Th>
-                    <Th>시각</Th>
-                    <Th>금액</Th>
-                    <Th>상태</Th>
-                    <Th>채널</Th>
-                </tr>
-                </thead>
-                <tbody>
-                {rows.map((r) => (
-                    <tr
-                        key={r.id}
-                        className="border-b last:border-0 border-neutral-200 dark:border-neutral-800 hover:bg-neutral-50/60 dark:hover:bg-neutral-900/40"
-                    >
-                        <Td>{r.id}</Td>
-                        <Td>{r.time}</Td>
-                        <Td>{Number(r.amount).toLocaleString()}</Td>
-                        <Td>
-                <span
-                    className={
-                        "inline-flex items-center gap-2 px-2 py-0.5 rounded-lg text-xs " +
-                        (r.status === "ERROR"
-                            ? "bg-red-500/10 text-red-600 dark:text-red-400"
-                            : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400")
-                    }
-                >
-                  <span className="inline-block size-1.5 rounded-full bg-current" /> {r.status}
-                </span>
-                        </Td>
-                        <Td>{r.channel}</Td>
+        <div className="overflow-hidden rounded-2xl bg-white dark:bg-neutral-900">
+            <div className="overflow-x-auto">
+                <table className="min-w-full">
+                    <thead>
+                    <tr className="border-b border-neutral-200 dark:border-neutral-700">
+                        <Th>트랜잭션 ID</Th>
+                        <Th>시각</Th>
+                        <Th>금액</Th>
+                        <Th>상태</Th>
+                        <Th>채널</Th>
                     </tr>
-                ))}
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                    {rows.map((r, index) => (
+                        <motion.tr
+                            key={r.id}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: index * 0.03, duration: 0.4 }}
+                            className="border-b border-neutral-100 dark:border-neutral-800 hover:bg-neutral-50/80 dark:hover:bg-neutral-800/50 transition-all duration-200 group"
+                        >
+                            <Td>
+                                <div className="flex items-center gap-3">
+                                    <div className="w-2 h-2 bg-gradient-to-r from-emerald-400 to-cyan-400 rounded-full"></div>
+                                    <span className="font-mono text-sm font-semibold text-neutral-900 dark:text-white">
+                                        {r.id}
+                                    </span>
+                                </div>
+                            </Td>
+                            <Td>
+                                <span className="text-sm text-neutral-600 dark:text-neutral-400">
+                                    {r.time}
+                                </span>
+                            </Td>
+                            <Td>
+                                <span className="text-sm font-bold text-neutral-900 dark:text-white">
+                                    ₩{Number(r.amount).toLocaleString()}
+                                </span>
+                            </Td>
+                            <Td>
+                                <span
+                                    className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold ${
+                                        r.status === "ERROR"
+                                            ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
+                                            : "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400"
+                                    }`}
+                                >
+                                    <div className={`w-1.5 h-1.5 rounded-full ${
+                                        r.status === "ERROR" ? "bg-red-500" : "bg-emerald-500"
+                                    }`} />
+                                    {r.status}
+                                </span>
+                            </Td>
+                            <Td>
+                                <span className={`inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-medium ${
+                                    r.channel === "OpenAPI" 
+                                        ? "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400" 
+                                        : "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400"
+                                }`}>
+                                    {r.channel}
+                                </span>
+                            </Td>
+                        </motion.tr>
+                    ))}
+                    </tbody>
+                </table>
+            </div>
         </div>
     );
 }
 
-function Th({ children }) {
-    return <th className="py-2.5 px-3 font-medium text-neutral-600 dark:text-neutral-300">{children}</th>;
+function Th({ children }: { children: React.ReactNode }) {
+    return (
+        <th className="py-5 px-6 text-left font-bold text-neutral-900 dark:text-white text-sm">
+            {children}
+        </th>
+    );
 }
-function Td({ children }) {
-    return <td className="py-2.5 px-3 text-neutral-800 dark:text-neutral-200">{children}</td>;
+function Td({ children }: { children: React.ReactNode }) {
+    return (
+        <td className="py-4 px-6 text-left">
+            {children}
+        </td>
+    );
 }
 
-function Input({ label, ...props }) {
+function Input({ label, ...props }: { label?: string; [key: string]: any }) {
     return (
-        <label className="text-sm">
-            {label ? <div className="mb-1 text-neutral-500 dark:text-neutral-400">{label}</div> : null}
+        <label className="text-sm group">
+            {label && (
+                <div className="mb-2 text-neutral-600 dark:text-neutral-400 font-medium">
+                    {label}
+                </div>
+            )}
             <input
                 {...props}
-                className="h-9 w-full rounded-lg border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                className="h-11 w-full rounded-xl border border-neutral-200/50 dark:border-neutral-700/50 bg-white/60 dark:bg-neutral-900/60 backdrop-blur-sm px-4 text-sm font-medium placeholder:text-neutral-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 transition-all duration-200 shadow-sm hover:shadow-md focus:bg-white/80 dark:focus:bg-neutral-900/80 focus:border-cyan-300/50 dark:focus:border-cyan-600/50"
             />
         </label>
     );
 }
 
-function Select({ label, children }) {
+function Select({ label, children }: { label?: string; children: React.ReactNode }) {
     return (
-        <label className="text-sm">
-            {label ? <div className="mb-1 text-neutral-500 dark:text-neutral-400">{label}</div> : null}
-            <select className="h-9 w-full rounded-lg border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
+        <label className="text-sm group">
+            {label && (
+                <div className="mb-2 text-neutral-600 dark:text-neutral-400 font-medium">
+                    {label}
+                </div>
+            )}
+            <select className="h-11 w-full rounded-xl border border-neutral-200/50 dark:border-neutral-700/50 bg-white/60 dark:bg-neutral-900/60 backdrop-blur-sm px-4 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 transition-all duration-200 shadow-sm hover:shadow-md focus:bg-white/80 dark:focus:bg-neutral-900/80 focus:border-cyan-300/50 dark:focus:border-cyan-600/50 cursor-pointer">
                 {children}
             </select>
         </label>
