@@ -20,14 +20,14 @@ interface Transaction {
     time: string;
     amount: string;
     status: 'OK' | 'ERROR';
-    channel: 'OpenAPI' | 'Internal';
+    channel: 'KakaoBank' | 'TossBank';
 }
 
 interface KPI {
     label: string;
     value: string;
     delta?: string;
-    icon?: any;
+    icon?: React.ComponentType<{ size?: number; className?: string }>;
     gradient?: string;
     bgGradient?: string;
     glowColor?: string;
@@ -63,26 +63,26 @@ function runSelfTests() {
     if (typeof window === "undefined") return; // client-only
     try {
         const sample: Transaction[] = [
-            { id: "TX-1", time: "10:00:00", amount: "1000", status: "OK",    channel: "OpenAPI" },
-            { id: "TX-2", time: "10:00:01", amount: "2000", status: "ERROR", channel: "Internal" },
-            { id: "TX-3", time: "10:00:02", amount: "3000", status: "OK",    channel: "Internal" },
-            { id: "TX-4", time: "10:00:03", amount: "4000", status: "ERROR", channel: "OpenAPI" },
+            { id: "TX-1", time: "10:00:00", amount: "1000", status: "OK",    channel: "KakaoBank" },
+            { id: "TX-2", time: "10:00:01", amount: "2000", status: "ERROR", channel: "TossBank" },
+            { id: "TX-3", time: "10:00:02", amount: "3000", status: "OK",    channel: "TossBank" },
+            { id: "TX-4", time: "10:00:03", amount: "4000", status: "ERROR", channel: "KakaoBank" },
         ];
 
         // Existing tests (kept):
         console.assert(filterRows(sample, "").length === 4, "Test1 failed: empty query");
         console.assert(filterRows(sample, "error").length === 2, "Test2 failed: 'error' should match 2");
-        console.assert(filterRows(sample, "OpenAPI").length === 2, "Test3 failed: 'OpenAPI' should match 2");
+        console.assert(filterRows(sample, "KakaoBank").length === 2, "Test3 failed: 'KakaoBank' should match 2");
         console.assert(filterRows(sample, "does-not-exist").length === 0, "Test4 failed: non-existing keyword");
         console.assert(filterRows(sample, "3000").length === 1, "Test5 failed: amount match");
 
         // Additional tests:
         console.assert(filterRows(sample, "  error  ").length === 2, "Test6 failed: trim whitespace");
         console.assert(filterRows(sample, "tx-3").length === 1, "Test7 failed: id case-insensitive");
-        console.assert(filterRows(sample, "INTERNAL").length === 2, "Test8 failed: channel case-insensitive");
+        console.assert(filterRows(sample, "TOSS BANK").length === 2, "Test8 failed: channel case-insensitive");
 
-        if (!(window as any).__finora_tests_ran__) {
-            (window as any).__finora_tests_ran__ = true;
+        if (!(window as typeof window & { __finora_tests_ran__?: boolean }).__finora_tests_ran__) {
+            (window as typeof window & { __finora_tests_ran__?: boolean }).__finora_tests_ran__ = true;
             console.log("[Finora] Self-tests passed");
         }
     } catch (e) {
@@ -139,9 +139,9 @@ export default function FinoraDashboardMockup() {
     // Initialize theme from URL > localStorage > system preference
     useEffect(() => {
         try {
-            let modeFromUrl = initialTheme === 'dark' || initialTheme === 'light' ? initialTheme : null;
-            let saved = localStorage.getItem("finora.theme");
-            let prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            const modeFromUrl = initialTheme === 'dark' || initialTheme === 'light' ? initialTheme : null;
+            const saved = localStorage.getItem("finora.theme");
+            const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
             const next = modeFromUrl ?? (saved === 'dark' || saved === 'light' ? saved : (prefersDark ? 'dark' : 'light'));
             const isDark = next === 'dark';
             setDark(isDark);
@@ -149,7 +149,7 @@ export default function FinoraDashboardMockup() {
             firstThemeApplied.current = true;
             // sync URL if came from storage/system
             if (!modeFromUrl) writeParam('theme', next);
-        } catch (_) {}
+        } catch {}
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
@@ -172,7 +172,7 @@ export default function FinoraDashboardMockup() {
     // Persist and apply when toggled; sync URL param
     useEffect(() => {
         if (!firstThemeApplied.current) return; // avoid double-run at mount
-        try { localStorage.setItem("finora.theme", dark ? "dark" : "light"); } catch (_) {}
+        try { localStorage.setItem("finora.theme", dark ? "dark" : "light"); } catch {}
         applyTheme(dark);
         writeParam('theme', dark ? 'dark' : 'light');
     }, [dark]);
@@ -217,13 +217,13 @@ export default function FinoraDashboardMockup() {
                 const ts = new Date(base - i * 41000); // 41s step
                 const amount = Math.floor(rng() * 1_000_000);
                 const isError = rng() > 0.95;
-                const isOpenAPI = rng() > 0.5;
+                const isKakaoBank = rng() > 0.5;
                 return {
                     id: `TX-${1000 + i}`,
                     time: ts.toLocaleTimeString('ko-KR', { hour12: true, timeZone: 'UTC' }),
                     amount: String(amount),
                     status: isError ? 'ERROR' : 'OK',
-                    channel: isOpenAPI ? 'OpenAPI' : 'Internal',
+                    channel: isKakaoBank ? 'KakaoBank' : 'TossBank',
                 };
             });
         },
@@ -264,7 +264,7 @@ export default function FinoraDashboardMockup() {
         { 
             label: "활성 채널", 
             value: "2", 
-            delta: "OpenAPI, Internal", 
+            delta: "KakaoBank, TossBank", 
             icon: Zap,
             gradient: "from-pink-400 via-rose-400 to-red-400",
             bgGradient: "from-pink-400/5 via-rose-400/3 to-red-400/5",
@@ -399,45 +399,63 @@ export default function FinoraDashboardMockup() {
                                 
                                 {/* Notification Dropdown */}
                                 {showNotifications && (
-                                    <div className="absolute right-0 top-full mt-2 w-80 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-600 rounded-lg shadow-lg z-50">
-                                        <div className="p-4 border-b border-neutral-200 dark:border-neutral-600">
-                                            <h3 className="text-sm font-semibold text-neutral-900 dark:text-white">알림</h3>
-                                        </div>
-                                        <div className="max-h-64 overflow-y-auto">
-                                            <div className="p-3 hover:bg-neutral-50 dark:hover:bg-neutral-700 border-b border-neutral-100 dark:border-neutral-700">
-                                                <div className="flex items-start gap-3">
-                                                    <div className="w-2 h-2 bg-red-500 rounded-full mt-2 flex-shrink-0" />
-                                                    <div className="flex-1">
-                                                        <p className="text-sm font-medium text-neutral-900 dark:text-white">오류율 임계치 초과</p>
-                                                        <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-1">10분 전 · 구간: /payments/authorize</p>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div className="p-3 hover:bg-neutral-50 dark:hover:bg-neutral-700 border-b border-neutral-100 dark:border-neutral-700">
-                                                <div className="flex items-start gap-3">
-                                                    <div className="w-2 h-2 bg-amber-500 rounded-full mt-2 flex-shrink-0" />
-                                                    <div className="flex-1">
-                                                        <p className="text-sm font-medium text-neutral-900 dark:text-white">평균 지연 상승</p>
-                                                        <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-1">18분 전 · OpenAPI Channel</p>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div className="p-3 hover:bg-neutral-50 dark:hover:bg-neutral-700">
-                                                <div className="flex items-start gap-3">
-                                                    <div className="w-2 h-2 bg-cyan-500 rounded-full mt-2 flex-shrink-0" />
-                                                    <div className="flex-1">
-                                                        <p className="text-sm font-medium text-neutral-900 dark:text-white">신규 배포 완료</p>
-                                                        <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-1">30분 전 · core-api v0.2.1</p>
-                                                    </div>
+                                    <motion.div
+                                        initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                                        exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                                        transition={{ duration: 0.2, ease: "easeOut" }}
+                                        className="absolute right-0 top-full mt-3 w-96 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-xl border border-neutral-200/50 dark:border-neutral-700/50 rounded-3xl shadow-2xl z-50 overflow-hidden"
+                                    >
+                                        <div className="p-6 border-b border-neutral-200/50 dark:border-neutral-700/50 bg-gradient-to-r from-white/50 to-neutral-50/50 dark:from-neutral-900/50 dark:to-neutral-800/50">
+                                            <div className="flex items-center justify-between">
+                                                <h3 className="text-lg font-bold text-neutral-900 dark:text-white">알림</h3>
+                                                <div className="flex items-center gap-2">
+                                                    <div className="w-2 h-2 bg-gradient-to-r from-red-400 to-red-500 rounded-full animate-pulse"></div>
+                                                    <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">실시간</span>
                                                 </div>
                                             </div>
                                         </div>
-                                        <div className="p-3 border-t border-neutral-200 dark:border-neutral-600">
-                                            <button className="text-xs text-cyan-600 dark:text-cyan-400 hover:text-cyan-800 dark:hover:text-cyan-300 font-medium">
+                                        <div className="max-h-80 overflow-y-auto">
+                                            <div className="p-5 hover:bg-gradient-to-r hover:from-red-50/70 hover:to-red-100/70 dark:hover:from-red-950/40 dark:hover:to-red-900/40 transition-all duration-300 border-b border-neutral-100/50 dark:border-neutral-800/50">
+                                                <div className="flex items-start gap-4">
+                                                    <div className="w-3 h-3 bg-gradient-to-r from-red-400 to-red-500 rounded-full mt-2 flex-shrink-0 shadow-lg shadow-red-500/30"></div>
+                                                    <div className="flex-1">
+                                                        <p className="text-base font-bold text-neutral-900 dark:text-white mb-2">오류율 임계치 초과</p>
+                                                        <div className="text-sm font-semibold text-red-700 dark:text-red-300 bg-red-100/80 dark:bg-red-900/50 px-3 py-1.5 rounded-lg inline-block">
+                                                            10분 전 · 구간: /payments/authorize
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div className="p-5 hover:bg-gradient-to-r hover:from-amber-50/70 hover:to-amber-100/70 dark:hover:from-amber-950/40 dark:hover:to-amber-900/40 transition-all duration-300 border-b border-neutral-100/50 dark:border-neutral-800/50">
+                                                <div className="flex items-start gap-4">
+                                                    <div className="w-3 h-3 bg-gradient-to-r from-amber-400 to-amber-500 rounded-full mt-2 flex-shrink-0 shadow-lg shadow-amber-500/30"></div>
+                                                    <div className="flex-1">
+                                                        <p className="text-base font-bold text-neutral-900 dark:text-white mb-2">평균 지연 상승</p>
+                                                        <div className="text-sm font-semibold text-amber-700 dark:text-amber-300 bg-amber-100/80 dark:bg-amber-900/50 px-3 py-1.5 rounded-lg inline-block">
+                                                            18분 전 · KakaoBank Channel
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div className="p-5 hover:bg-gradient-to-r hover:from-cyan-50/70 hover:to-cyan-100/70 dark:hover:from-cyan-950/40 dark:hover:to-cyan-900/40 transition-all duration-300">
+                                                <div className="flex items-start gap-4">
+                                                    <div className="w-3 h-3 bg-gradient-to-r from-cyan-400 to-cyan-500 rounded-full mt-2 flex-shrink-0 shadow-lg shadow-cyan-500/30"></div>
+                                                    <div className="flex-1">
+                                                        <p className="text-base font-bold text-neutral-900 dark:text-white mb-2">신규 배포 완료</p>
+                                                        <div className="text-sm font-semibold text-cyan-700 dark:text-cyan-300 bg-cyan-100/80 dark:bg-cyan-900/50 px-3 py-1.5 rounded-lg inline-block">
+                                                            30분 전 · core-api v0.2.1
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="p-4 border-t border-neutral-200/50 dark:border-neutral-700/50 bg-gradient-to-r from-white/50 to-neutral-50/50 dark:from-neutral-900/50 dark:to-neutral-800/50">
+                                            <button className="w-full py-2 px-4 text-sm font-semibold text-white bg-gradient-to-r from-emerald-500 via-cyan-500 to-blue-500 hover:from-emerald-600 hover:via-cyan-600 hover:to-blue-600 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl">
                                                 모든 알림 보기
                                             </button>
                                         </div>
-                                    </div>
+                                    </motion.div>
                                 )}
                             </div>
                         </div>
@@ -529,39 +547,76 @@ function Overview({ kpis, rows }: { kpis: KPI[]; rows: Transaction[] }) {
 
             {/* Realtime Chart Placeholder */}
             <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <Card className="lg:col-span-2">
-                    <div className="flex items-center justify-between mb-3">
+                <Card className="lg:col-span-2 flex flex-col">
+                    <div className="flex items-center justify-between mb-6">
                         <h2 className="text-lg font-semibold">실시간 처리량</h2>
                         <div className="text-xs text-neutral-500">라인 차트 영역(추후 Recharts)</div>
                     </div>
-                    <ChartPlaceholder />
+                    <div className="flex-1">
+                        <ChartPlaceholder />
+                    </div>
                 </Card>
 
                 <Card>
-                    <h2 className="text-lg font-semibold mb-3">이벤트/알림</h2>
-                    <ul className="space-y-2 text-sm">
-                        <li className="flex items-start gap-2">
-                            <span className="mt-1 size-2 rounded-full bg-red-500" />
-                            <div>
-                                <div className="font-medium">오류율 임계치 초과 감지</div>
-                                <div className="text-neutral-500 text-xs">10분 전 · 구간: /payments/authorize</div>
+                    <div className="flex items-center justify-between mb-6">
+                        <h2 className="text-lg font-bold text-neutral-900 dark:text-white">이벤트/알림</h2>
+                        <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 bg-gradient-to-r from-red-400 to-red-500 rounded-full animate-pulse"></div>
+                            <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">실시간</span>
+                        </div>
+                    </div>
+                    <div className="space-y-3">
+                        <div className="group p-4 rounded-2xl bg-gradient-to-r from-neutral-50 to-neutral-100/50 dark:from-neutral-800/50 dark:to-neutral-700/30 border border-neutral-200/40 dark:border-neutral-700/40 hover:bg-gradient-to-r hover:from-red-50/70 hover:to-red-100/70 dark:hover:from-red-950/40 dark:hover:to-red-900/40 transition-all duration-300">
+                            <div className="flex items-start gap-4">
+                                <div className="w-1 h-8 bg-gradient-to-b from-red-400 to-red-600 rounded-full mt-1 flex-shrink-0"></div>
+                                <div className="flex-1">
+                                    <div className="flex items-start justify-between gap-3 mb-2">
+                                        <div>
+                                            <div className="text-sm font-bold text-neutral-900 dark:text-white mb-1">오류율 임계치 초과</div>
+                                            <div className="text-xs text-neutral-600 dark:text-neutral-400">core-api 서비스에서 0.3% 오류율 감지</div>
+                                        </div>
+                                        <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 whitespace-nowrap">
+                                            10분 전
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
-                        </li>
-                        <li className="flex items-start gap-2">
-                            <span className="mt-1 size-2 rounded-full bg-amber-500" />
-                            <div>
-                                <div className="font-medium">평균 지연 상승</div>
-                                <div className="text-neutral-500 text-xs">18분 전 · OpenAPI Channel</div>
+                        </div>
+
+                        <div className="group p-4 rounded-2xl bg-gradient-to-r from-neutral-50 to-neutral-100/50 dark:from-neutral-800/50 dark:to-neutral-700/30 border border-neutral-200/40 dark:border-neutral-700/40 hover:bg-gradient-to-r hover:from-amber-50/70 hover:to-amber-100/70 dark:hover:from-amber-950/40 dark:hover:to-amber-900/40 transition-all duration-300">
+                            <div className="flex items-start gap-4">
+                                <div className="w-1 h-8 bg-gradient-to-b from-amber-400 to-amber-600 rounded-full mt-1 flex-shrink-0"></div>
+                                <div className="flex-1">
+                                    <div className="flex items-start justify-between gap-3 mb-2">
+                                        <div>
+                                            <div className="text-sm font-bold text-neutral-900 dark:text-white mb-1">평균 지연 상승</div>
+                                            <div className="text-xs text-neutral-600 dark:text-neutral-400">KakaoBank 채널 응답시간 280ms로 증가</div>
+                                        </div>
+                                        <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 whitespace-nowrap">
+                                            18분 전
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
-                        </li>
-                        <li className="flex items-start gap-2">
-                            <span className="mt-1 size-2 rounded-full bg-cyan-500" />
-                            <div>
-                                <div className="font-medium">신규 배포 완료</div>
-                                <div className="text-neutral-500 text-xs">30분 전 · core-api v0.2.1</div>
+                        </div>
+
+                        <div className="group p-4 rounded-2xl bg-gradient-to-r from-neutral-50 to-neutral-100/50 dark:from-neutral-800/50 dark:to-neutral-700/30 border border-neutral-200/40 dark:border-neutral-700/40 hover:bg-gradient-to-r hover:from-cyan-50/70 hover:to-cyan-100/70 dark:hover:from-cyan-950/40 dark:hover:to-cyan-900/40 transition-all duration-300">
+                            <div className="flex items-start gap-4">
+                                <div className="w-1 h-8 bg-gradient-to-b from-cyan-400 to-cyan-600 rounded-full mt-1 flex-shrink-0"></div>
+                                <div className="flex-1">
+                                    <div className="flex items-start justify-between gap-3 mb-2">
+                                        <div>
+                                            <div className="text-sm font-bold text-neutral-900 dark:text-white mb-1">신규 배포 완료</div>
+                                            <div className="text-xs text-neutral-600 dark:text-neutral-400">core-api v0.2.1 배포가 성공적으로 완료됨</div>
+                                        </div>
+                                        <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 whitespace-nowrap">
+                                            30분 전
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
-                        </li>
-                    </ul>
+                        </div>
+                    </div>
                 </Card>
             </section>
 
@@ -609,8 +664,8 @@ function Transactions({ rows }: { rows: Transaction[] }) {
                     </Select>
                     <Select label="채널">
                         <option>전체</option>
-                        <option>OpenAPI</option>
-                        <option>Internal</option>
+                        <option>KakaoBank</option>
+                        <option>TossBank</option>
                     </Select>
                     <Input label="최소 금액" placeholder="0" />
                     <Input label="최대 금액" placeholder="1,000,000" />
@@ -622,34 +677,264 @@ function Transactions({ rows }: { rows: Transaction[] }) {
 }
 
 function Alerts() {
+    const [filter, setFilter] = useState('all'); // 'all', 'unread', 'critical'
+
+    const alerts = [
+        {
+            id: 1,
+            type: 'critical',
+            title: '오류율 임계치 초과',
+            description: 'core-api 서비스에서 0.3% 오류율 감지',
+            time: '10분 전',
+            service: 'core-api',
+            status: 'unread',
+            severity: 'high',
+            action: 'investigate'
+        },
+        {
+            id: 2,
+            type: 'warning',
+            title: '평균 지연 상승',
+            description: 'KakaoBank 채널 응답시간 280ms로 증가',
+            time: '18분 전',
+            service: 'payment-gateway',
+            status: 'unread',
+            severity: 'medium',
+            action: 'monitor'
+        },
+        {
+            id: 3,
+            type: 'info',
+            title: '신규 배포 완료',
+            description: 'core-api v0.2.1 배포가 성공적으로 완료됨',
+            time: '30분 전',
+            service: 'core-api',
+            status: 'read',
+            severity: 'low',
+            action: 'verify'
+        },
+        {
+            id: 4,
+            type: 'warning',
+            title: '처리량 급락',
+            description: '최근 3분 대비 35% 감소 감지',
+            time: '45분 전',
+            service: 'transaction-processor',
+            status: 'read',
+            severity: 'medium',
+            action: 'analyze'
+        },
+        {
+            id: 5,
+            type: 'critical',
+            title: '연결 실패',
+            description: '외부 API 연결이 5회 연속 실패',
+            time: '1시간 전',
+            service: 'external-gateway',
+            status: 'acknowledged',
+            severity: 'high',
+            action: 'retry'
+        }
+    ];
+
+    const filteredAlerts = alerts.filter(alert => {
+        if (filter === 'unread') return alert.status === 'unread';
+        if (filter === 'critical') return alert.severity === 'high';
+        return true;
+    });
+
+    const getSeverityColor = (severity: string) => {
+        if (severity === 'high') return 'from-red-50/80 to-red-100/80 dark:from-red-950/50 dark:to-red-900/50 border-red-200/60 dark:border-red-800/60';
+        if (severity === 'medium') return 'from-amber-50/80 to-amber-100/80 dark:from-amber-950/50 dark:to-amber-900/50 border-amber-200/60 dark:border-amber-800/60';
+        return 'from-cyan-50/80 to-cyan-100/80 dark:from-cyan-950/50 dark:to-cyan-900/50 border-cyan-200/60 dark:border-cyan-800/60';
+    };
+
+
     return (
-        <div className="grid gap-6">
-            <Card>
-                <h2 className="text-lg font-semibold mb-3">알림 정책</h2>
-                <ul className="text-sm list-disc pl-5 space-y-1">
-                    <li>오류율(%) &gt; 0.2% · 5분 평균</li>
-                    <li>평균 지연(ms) &gt; 250ms · 5분 평균</li>
-                    <li>처리량(tps) 급락 · 최근 3분 대비 -30%</li>
-                </ul>
+        <div className="space-y-8">
+            {/* Header with Filters - Slack/GitHub style */}
+            <div className="flex items-center justify-between">
+                <div>
+                    <h1 className="text-3xl font-bold text-neutral-900 dark:text-white mb-2">알림 센터</h1>
+                    <p className="text-neutral-600 dark:text-neutral-400">시스템 이벤트와 알림을 관리하세요</p>
+                </div>
+                <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 bg-white dark:bg-neutral-800 rounded-xl p-1 border border-neutral-200 dark:border-neutral-700">
+                        <button
+                            onClick={() => setFilter('all')}
+                            className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+                                filter === 'all'
+                                    ? 'bg-neutral-900 dark:bg-white text-white dark:text-neutral-900'
+                                    : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100'
+                            }`}
+                        >
+                            전체 ({alerts.length})
+                        </button>
+                        <button
+                            onClick={() => setFilter('unread')}
+                            className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+                                filter === 'unread'
+                                    ? 'bg-neutral-900 dark:bg-white text-white dark:text-neutral-900'
+                                    : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100'
+                            }`}
+                        >
+                            읽지 않음 ({alerts.filter(a => a.status === 'unread').length})
+                        </button>
+                        <button
+                            onClick={() => setFilter('critical')}
+                            className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+                                filter === 'critical'
+                                    ? 'bg-neutral-900 dark:bg-white text-white dark:text-neutral-900'
+                                    : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100'
+                            }`}
+                        >
+                            긴급 ({alerts.filter(a => a.severity === 'high').length})
+                        </button>
+                    </div>
+                    <button className="px-4 py-2 text-sm font-semibold text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 border border-neutral-200 dark:border-neutral-700 rounded-xl hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-all">
+                        모두 읽음으로 표시
+                    </button>
+                </div>
+            </div>
+
+            {/* Alert List - GitHub notification style */}
+            <Card className="p-0 overflow-hidden">
+                <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
+                    {filteredAlerts.map((alert, index) => (
+                        <motion.div
+                            key={alert.id}
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: index * 0.1 }}
+                            className={`p-6 hover:bg-gradient-to-r ${getSeverityColor(alert.severity)} transition-all duration-300 group ${
+                                alert.status === 'unread' ? 'bg-gradient-to-r from-blue-50/30 to-indigo-50/30 dark:from-blue-950/20 dark:to-indigo-950/20' : ''
+                            }`}
+                        >
+                            <div className="flex items-start gap-6">
+                                {/* Minimal severity indicator */}
+                                <div className="flex-shrink-0 mt-2">
+                                    <div className={`w-1 h-12 rounded-full ${
+                                        alert.severity === 'high' ? 'bg-gradient-to-b from-red-400 to-red-600' :
+                                        alert.severity === 'medium' ? 'bg-gradient-to-b from-amber-400 to-amber-600' :
+                                        'bg-gradient-to-b from-cyan-400 to-cyan-600'
+                                    }`}></div>
+                                </div>
+
+                                {/* Content */}
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-start justify-between gap-4 mb-4">
+                                        <div className="flex-1">
+                                            <div className="flex items-center gap-3 mb-2">
+                                                <h3 className="text-lg font-bold text-neutral-900 dark:text-white">
+                                                    {alert.title}
+                                                </h3>
+                                                {alert.status === 'unread' && (
+                                                    <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                                                )}
+                                                {alert.status === 'acknowledged' && (
+                                                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                                                )}
+                                            </div>
+                                            <p className="text-base text-neutral-600 dark:text-neutral-400 mb-3 leading-relaxed">
+                                                {alert.description}
+                                            </p>
+                                        </div>
+                                        <div className="text-sm font-medium text-neutral-500 dark:text-neutral-400 whitespace-nowrap">
+                                            {alert.time}
+                                        </div>
+                                    </div>
+
+                                    {/* Tags and Actions */}
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-4">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
+                                                    서비스
+                                                </span>
+                                                <span className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
+                                                    {alert.service}
+                                                </span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
+                                                    우선순위
+                                                </span>
+                                                <span className={`text-sm font-semibold ${
+                                                    alert.severity === 'high' ? 'text-red-600 dark:text-red-400' :
+                                                    alert.severity === 'medium' ? 'text-amber-600 dark:text-amber-400' :
+                                                    'text-cyan-600 dark:text-cyan-400'
+                                                }`}>
+                                                    {alert.severity === 'high' ? '긴급' : alert.severity === 'medium' ? '경고' : '정보'}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        {/* Action Buttons */}
+                                        <div className="flex items-center gap-3">
+                                            <button className="px-4 py-2 text-sm font-semibold bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-100 rounded-lg transition-all duration-200">
+                                                {alert.action === 'investigate' ? '조사하기' :
+                                                 alert.action === 'monitor' ? '모니터링' :
+                                                 alert.action === 'verify' ? '확인하기' :
+                                                 alert.action === 'analyze' ? '분석하기' : '재시도'}
+                                            </button>
+                                            <button className="px-3 py-2 text-sm font-medium text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 rounded-lg transition-all duration-200">
+                                                무시
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </motion.div>
+                    ))}
+                </div>
             </Card>
+
+            {/* Alert Rules - Simplified */}
             <Card>
-                <h2 className="text-lg font-semibold mb-3">최근 알림</h2>
-                <ul className="space-y-2 text-sm">
-                    <li className="flex items-start gap-2">
-                        <span className="mt-1 size-2 rounded-full bg-red-500" />
-                        <div>
-                            <div className="font-medium">오류율 임계치 초과</div>
-                            <div className="text-neutral-500 text-xs">09:13 · core-api</div>
+                <div className="flex items-center justify-between mb-6">
+                    <h2 className="text-xl font-bold text-neutral-900 dark:text-white">알림 규칙</h2>
+                    <button className="px-4 py-2 text-sm font-semibold text-white bg-gradient-to-r from-emerald-500 via-cyan-500 to-blue-500 hover:from-emerald-600 hover:via-cyan-600 hover:to-blue-600 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl">
+                        규칙 추가
+                    </button>
+                </div>
+                <div className="space-y-3">
+                    <div className="flex items-center justify-between p-5 bg-gradient-to-r from-neutral-50 to-neutral-100/50 dark:from-neutral-800/50 dark:to-neutral-700/30 rounded-2xl border border-neutral-200/40 dark:border-neutral-700/40">
+                        <div className="flex items-center gap-4">
+                            <div className="w-1 h-6 bg-gradient-to-b from-red-400 to-red-600 rounded-full"></div>
+                            <div>
+                                <span className="font-bold text-neutral-900 dark:text-white">오류율 임계치</span>
+                                <div className="text-sm text-neutral-600 dark:text-neutral-400 mt-1">
+                                    0.2% 초과 시 · 5분 평균 기준
+                                </div>
+                            </div>
                         </div>
-                    </li>
-                    <li className="flex items-start gap-2">
-                        <span className="mt-1 size-2 rounded-full bg-amber-500" />
-                        <div>
-                            <div className="font-medium">지연 상승</div>
-                            <div className="text-neutral-500 text-xs">08:55 · payment-gateway</div>
+                        <div className="text-xs font-semibold text-green-700 dark:text-green-400">활성</div>
+                    </div>
+                    <div className="flex items-center justify-between p-5 bg-gradient-to-r from-neutral-50 to-neutral-100/50 dark:from-neutral-800/50 dark:to-neutral-700/30 rounded-2xl border border-neutral-200/40 dark:border-neutral-700/40">
+                        <div className="flex items-center gap-4">
+                            <div className="w-1 h-6 bg-gradient-to-b from-amber-400 to-amber-600 rounded-full"></div>
+                            <div>
+                                <span className="font-bold text-neutral-900 dark:text-white">지연시간 임계치</span>
+                                <div className="text-sm text-neutral-600 dark:text-neutral-400 mt-1">
+                                    250ms 초과 시 · 5분 평균 기준
+                                </div>
+                            </div>
                         </div>
-                    </li>
-                </ul>
+                        <div className="text-xs font-semibold text-green-700 dark:text-green-400">활성</div>
+                    </div>
+                    <div className="flex items-center justify-between p-5 bg-gradient-to-r from-neutral-50 to-neutral-100/50 dark:from-neutral-800/50 dark:to-neutral-700/30 rounded-2xl border border-neutral-200/40 dark:border-neutral-700/40">
+                        <div className="flex items-center gap-4">
+                            <div className="w-1 h-6 bg-gradient-to-b from-orange-400 to-orange-600 rounded-full"></div>
+                            <div>
+                                <span className="font-bold text-neutral-900 dark:text-white">처리량 급락 감지</span>
+                                <div className="text-sm text-neutral-600 dark:text-neutral-400 mt-1">
+                                    30% 이상 감소 시 · 3분 대비
+                                </div>
+                            </div>
+                        </div>
+                        <div className="text-xs font-semibold text-green-700 dark:text-green-400">활성</div>
+                    </div>
+                </div>
             </Card>
         </div>
     );
@@ -667,45 +952,74 @@ function Card({ children, className = "" }: { children: React.ReactNode; classNa
 }
 
 function ChartPlaceholder() {
-    const bars = useMemo(() => {
+    const chartData = useMemo(() => {
         const rng = mulberry32(777); // deterministic heights
         const auroraColors = [
             "from-emerald-400/70 to-cyan-400/70",
-            "from-cyan-400/70 to-blue-400/70", 
+            "from-cyan-400/70 to-blue-400/70",
             "from-blue-400/70 to-indigo-400/70",
             "from-indigo-400/70 to-violet-400/70",
             "from-violet-400/70 to-purple-400/70",
             "from-purple-400/70 to-pink-400/70"
         ];
-        
-        return Array.from({ length: 24 }).map((_, i) => ({
-            height: 20 + rng() * 80,
-            delay: i * 0.05,
-            gradient: auroraColors[i % auroraColors.length]
-        }));
+
+        const now = new Date();
+        return Array.from({ length: 24 }).map((_, i) => {
+            const timeOffset = (23 - i) * 5; // 5분 간격
+            const time = new Date(now.getTime() - timeOffset * 60000);
+            const value = Math.floor(300 + rng() * 600); // 300-900 TPS 범위
+            return {
+                height: 20 + rng() * 80,
+                delay: i * 0.05,
+                gradient: auroraColors[i % auroraColors.length],
+                time: time.toLocaleTimeString('ko-KR', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                }),
+                value: value,
+                isLatest: i === 23
+            };
+        });
     }, []);
-    
+
+    const currentValue = chartData[chartData.length - 1]?.value || 847;
+
     return (
-        <div className="h-64 w-full rounded-2xl bg-white/90 dark:bg-neutral-900/90 backdrop-blur-sm border border-neutral-200/60 dark:border-neutral-700/60 flex items-end gap-1 p-4 overflow-hidden relative group">
+        <div className="h-auto w-full rounded-2xl bg-white/90 dark:bg-neutral-900/90 backdrop-blur-sm border border-neutral-200/60 dark:border-neutral-700/60 relative group">
             {/* Subtle background gradient */}
-            <div className="absolute inset-0 bg-gradient-to-t from-neutral-50/30 via-transparent to-transparent dark:from-neutral-800/30 pointer-events-none" />
-            
+            <div className="absolute inset-0 bg-gradient-to-t from-neutral-50/30 via-transparent to-transparent dark:from-neutral-800/30 pointer-events-none rounded-2xl" />
+
             {/* Minimal floating accent */}
             <div className="absolute top-4 right-4 w-1.5 h-1.5 bg-gradient-to-r from-emerald-400 to-cyan-400 rounded-full opacity-30 animate-pulse" />
-            
-            {bars.map((bar, i) => (
-                <motion.div
-                    key={i}
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: `${bar.height}%`, opacity: 1 }}
-                    transition={{ delay: bar.delay, duration: 0.8, ease: "easeOut" }}
-                    className={`flex-1 rounded-t-lg bg-gradient-to-t ${bar.gradient} shadow-lg relative overflow-hidden group-hover:shadow-xl transition-shadow duration-300`}
-                >
-                    {/* Aurora shimmer effect */}
-                    <div className="absolute inset-0 bg-gradient-to-t from-transparent via-white/30 to-white/50 animate-pulse [animation-duration:3s]" />
-                    <div className={`absolute inset-0 bg-gradient-to-t from-transparent to-white/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500`} />
-                </motion.div>
-            ))}
+
+            {/* Current value indicator - positioned over latest bar */}
+            <div className="absolute top-4 right-8">
+                <div className="bg-white/90 dark:bg-neutral-800/90 backdrop-blur-sm border border-neutral-200/60 dark:border-neutral-700/60 rounded-lg px-3 py-1.5 shadow-lg">
+                    <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-0.5">현재 처리량</div>
+                    <div className="text-base font-bold text-emerald-600 dark:text-emerald-400">{currentValue} TPS</div>
+                </div>
+            </div>
+
+            {/* Chart container - matched to event card height */}
+            <div className="pt-20 pb-4 px-4">
+                <div className="h-40 flex items-end gap-1">
+                    {chartData.map((bar, i) => (
+                        <div key={i} className="flex-1 h-full flex flex-col justify-end">
+                            <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: `${bar.height}%`, opacity: 1 }}
+                                transition={{ delay: bar.delay, duration: 0.8, ease: "easeOut" }}
+                                className={`w-full rounded-t-lg bg-gradient-to-t ${bar.gradient} shadow-lg relative overflow-hidden group-hover:shadow-xl transition-shadow duration-300`}
+                            >
+                                {/* Aurora shimmer effect */}
+                                <div className="absolute inset-0 bg-gradient-to-t from-transparent via-white/30 to-white/50 animate-pulse [animation-duration:3s]" />
+                                <div className={`absolute inset-0 bg-gradient-to-t from-transparent to-white/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500`} />
+                            </motion.div>
+                        </div>
+                    ))}
+                </div>
+            </div>
         </div>
     );
 }
@@ -777,7 +1091,7 @@ function Table({ rows }: { rows: Transaction[] }) {
                             </Td>
                             <Td>
                                 <span className={`inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-medium ${
-                                    r.channel === "OpenAPI" 
+                                    r.channel === "KakaoBank" 
                                         ? "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400" 
                                         : "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400"
                                 }`}>
@@ -808,7 +1122,7 @@ function Td({ children }: { children: React.ReactNode }) {
     );
 }
 
-function Input({ label, ...props }: { label?: string; [key: string]: any }) {
+function Input({ label, ...props }: { label?: string; } & React.InputHTMLAttributes<HTMLInputElement>) {
     return (
         <label className="text-sm group">
             {label && (
