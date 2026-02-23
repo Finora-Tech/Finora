@@ -448,3 +448,4 @@ gradle-app.setting
 
 # Claude Code
 .claude/settings.local.json
+docs/blog*
