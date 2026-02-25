@@ -2,7 +2,16 @@
 
 import { useMemo, useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
-import { Moon, Sun, Search, Bell } from "lucide-react";
+import { Moon, Sun, Search, Bell, TrendingUp, CheckCircle, Clock, Zap } from "lucide-react";
+
+// Components
+import { Overview } from "../components/Overview";
+import { Transactions } from "../components/Transactions";
+import { Alerts } from "../components/Alerts";
+
+// Types and Utils
+import { Transaction, KPI } from "../types";
+import { filterRows, runSelfTests, readParam, writeParam, mulberry32 } from "../utils";
 
 /**
  * Finora UI Mockup v1 – Overview Dashboard (JSX)
@@ -12,68 +21,8 @@ import { Moon, Sun, Search, Bell } from "lucide-react";
  * 3) 유지: 오로라 로고, 다크모드 토글, filterRows + self-tests
  */
 
-// -------------------------------
-// Filtering helper + self-tests
-// -------------------------------
-function filterRows(rows, query) {
-    if (!query) return rows;
-    const q = String(query).trim().toLowerCase();
-    return rows.filter((r) =>
-        [r.id, r.time, r.amount, r.status, r.channel]
-            .join(" ")
-            .toLowerCase()
-            .includes(q)
-    );
-}
-
-function runSelfTests() {
-    if (typeof window === "undefined") return; // client-only
-    try {
-        const sample = [
-            { id: "TX-1", time: "10:00:00", amount: "1000", status: "OK",    channel: "OpenAPI" },
-            { id: "TX-2", time: "10:00:01", amount: "2000", status: "ERROR", channel: "Internal" },
-            { id: "TX-3", time: "10:00:02", amount: "3000", status: "OK",    channel: "Internal" },
-            { id: "TX-4", time: "10:00:03", amount: "4000", status: "ERROR", channel: "OpenAPI" },
-        ];
-
-        // Existing tests (kept):
-        console.assert(filterRows(sample, "").length === 4, "Test1 failed: empty query");
-        console.assert(filterRows(sample, "error").length === 2, "Test2 failed: 'error' should match 2");
-        console.assert(filterRows(sample, "OpenAPI").length === 2, "Test3 failed: 'OpenAPI' should match 2");
-        console.assert(filterRows(sample, "does-not-exist").length === 0, "Test4 failed: non-existing keyword");
-        console.assert(filterRows(sample, "3000").length === 1, "Test5 failed: amount match");
-
-        // Additional tests:
-        console.assert(filterRows(sample, "  error  ").length === 2, "Test6 failed: trim whitespace");
-        console.assert(filterRows(sample, "tx-3").length === 1, "Test7 failed: id case-insensitive");
-        console.assert(filterRows(sample, "INTERNAL").length === 2, "Test8 failed: channel case-insensitive");
-
-        if (!window.__finora_tests_ran__) {
-            window.__finora_tests_ran__ = true;
-            console.log("[Finora] Self-tests passed");
-        }
-    } catch (e) {
-        console.warn("[Finora] Self-tests encountered an error:", e);
-    }
-}
+// Run self-tests
 runSelfTests();
-
-// -------------------------------
-// URL helpers
-// -------------------------------
-function getURL() {
-    return new URL(window.location.href);
-}
-function readParam(name, fallback) {
-    const url = getURL();
-    return url.searchParams.get(name) ?? fallback;
-}
-function writeParam(name, value) {
-    const url = getURL();
-    if (value == null || value === "") url.searchParams.delete(name);
-    else url.searchParams.set(name, value);
-    window.history.replaceState({}, "", url.toString());
-}
 
 // -------------------------------
 // Main Component
@@ -89,11 +38,13 @@ export default function FinoraDashboardMockup() {
     const [search, setSearch] = useState(initialSearch);
     const [tab, setTab] = useState(initialTab); // 'overview' | 'transactions' | 'alerts'
     const [dark, setDark] = useState(false);
+    const [showNotifications, setShowNotifications] = useState(false);
 
     const firstThemeApplied = useRef(false);
+    const notificationRef = useRef<HTMLDivElement>(null);
 
     // Apply theme to <html> and meta theme-color
-    const applyTheme = (isDark) => {
+    const applyTheme = (isDark: boolean) => {
         const root = document.documentElement;
         if (isDark) root.classList.add("dark");
         else root.classList.remove("dark");
@@ -104,9 +55,9 @@ export default function FinoraDashboardMockup() {
     // Initialize theme from URL > localStorage > system preference
     useEffect(() => {
         try {
-            let modeFromUrl = initialTheme === 'dark' || initialTheme === 'light' ? initialTheme : null;
-            let saved = localStorage.getItem("finora.theme");
-            let prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            const modeFromUrl = initialTheme === 'dark' || initialTheme === 'light' ? initialTheme : null;
+            const saved = localStorage.getItem("finora.theme");
+            const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
             const next = modeFromUrl ?? (saved === 'dark' || saved === 'light' ? saved : (prefersDark ? 'dark' : 'light'));
             const isDark = next === 'dark';
             setDark(isDark);
@@ -114,7 +65,7 @@ export default function FinoraDashboardMockup() {
             firstThemeApplied.current = true;
             // sync URL if came from storage/system
             if (!modeFromUrl) writeParam('theme', next);
-        } catch (_) {}
+        } catch {}
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
@@ -123,7 +74,7 @@ export default function FinoraDashboardMockup() {
         const savedInUrl = readParam('theme', '');
         if (savedInUrl) return; // explicit URL wins
         const mq = window.matchMedia('(prefers-color-scheme: dark)');
-        const handler = (e) => {
+        const handler = (e: MediaQueryListEvent) => {
             // only auto-follow if user hasn't manually toggled (no localStorage override)
             const saved = localStorage.getItem('finora.theme');
             if (saved) return;
@@ -137,7 +88,7 @@ export default function FinoraDashboardMockup() {
     // Persist and apply when toggled; sync URL param
     useEffect(() => {
         if (!firstThemeApplied.current) return; // avoid double-run at mount
-        try { localStorage.setItem("finora.theme", dark ? "dark" : "light"); } catch (_) {}
+        try { localStorage.setItem("finora.theme", dark ? "dark" : "light"); } catch {}
         applyTheme(dark);
         writeParam('theme', dark ? 'dark' : 'light');
     }, [dark]);
@@ -150,61 +101,163 @@ export default function FinoraDashboardMockup() {
         return () => clearTimeout(id);
     }, [search]);
 
-    const kpis = useMemo(
-        () => [
-            { label: "오늘 거래건수", value: "12,840", delta: "+3.2%" },
-            { label: "체결 지연(ms)", value: "182", delta: "-5.4%" },
-            { label: "오류율(%)", value: "0.08", delta: "-0.01%" },
-            { label: "평균 처리량(tps)", value: "1,240", delta: "+1.1%" },
-        ],
-        []
-    );
+    // Close notifications on outside click or ESC key
+    useEffect(() => {
+        function handleClickOutside(event: MouseEvent) {
+            if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) {
+                setShowNotifications(false);
+            }
+        }
+
+        function handleKeyDown(event: KeyboardEvent) {
+            if (event.key === 'Escape') {
+                setShowNotifications(false);
+            }
+        }
+
+        if (showNotifications) {
+            document.addEventListener('mousedown', handleClickOutside);
+            document.addEventListener('keydown', handleKeyDown);
+            return () => {
+                document.removeEventListener('mousedown', handleClickOutside);
+                document.removeEventListener('keydown', handleKeyDown);
+            };
+        }
+    }, [showNotifications]);
 
     const txRows = useMemo(
-        () =>
-            Array.from({ length: 12 }).map((_, i) => ({
-                id: `TX-${1000 + i}`,
-                time: new Date(Date.now() - i * 1000 * 41).toLocaleTimeString(),
-                amount: (Math.random() * 1000000).toFixed(0),
-                status: Math.random() > 0.95 ? "ERROR" : "OK",
-                channel: Math.random() > 0.5 ? "OpenAPI" : "Internal",
-            })),
+        (): Transaction[] => {
+            const rng = mulberry32(42); // deterministic across server/client
+            const base = Date.UTC(2024, 0, 1, 12, 0, 0); // fixed UTC timebase to avoid TZ differences
+            return Array.from({ length: 12 }).map((_, i) => {
+                const ts = new Date(base - i * 41000); // 41s step
+                const amount = Math.floor(rng() * 1_000_000);
+                const isError = rng() > 0.95;
+                const isKakaoBank = rng() > 0.5;
+                return {
+                    id: `TX-${1000 + i}`,
+                    time: ts.toLocaleTimeString('ko-KR', { hour12: true, timeZone: 'UTC' }),
+                    amount: String(amount),
+                    status: isError ? 'ERROR' : 'OK',
+                    channel: isKakaoBank ? 'KakaoBank' : 'TossBank',
+                };
+            });
+        },
         []
     );
 
     const filteredRows = useMemo(() => filterRows(txRows, search), [txRows, search]);
 
+    // KPI 데이터 정의 - Aurora 테마 (가독성 개선)
+    const kpis = useMemo(() => [
+        {
+            label: "총 처리량",
+            value: "12,847",
+            delta: "+2.3% vs 어제",
+            icon: TrendingUp,
+            gradient: "from-emerald-400 via-cyan-400 to-teal-500",
+            bgGradient: "from-emerald-400/5 via-cyan-400/3 to-teal-500/5",
+            glowColor: "emerald-400/20"
+        },
+        {
+            label: "성공률",
+            value: "99.2%",
+            delta: "+0.1% vs 어제",
+            icon: CheckCircle,
+            gradient: "from-cyan-400 via-blue-400 to-indigo-500",
+            bgGradient: "from-cyan-400/5 via-blue-400/3 to-indigo-500/5",
+            glowColor: "cyan-400/20"
+        },
+        {
+            label: "평균 지연",
+            value: "142ms",
+            delta: "-8ms vs 어제",
+            icon: Clock,
+            gradient: "from-violet-400 via-purple-400 to-fuchsia-500",
+            bgGradient: "from-violet-400/5 via-purple-400/3 to-fuchsia-500/5",
+            glowColor: "violet-400/20"
+        },
+        {
+            label: "활성 채널",
+            value: "2",
+            delta: "KakaoBank, TossBank",
+            icon: Zap,
+            gradient: "from-pink-400 via-rose-400 to-red-400",
+            bgGradient: "from-pink-400/5 via-rose-400/3 to-red-400/5",
+            glowColor: "pink-400/20"
+        }
+    ], []);
+
     return (
         <div className={dark ? "dark" : ""}>
-            <div className="min-h-screen bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100 transition-colors duration-300 motion-reduce:transition-none">
-                {/* Top App Bar */}
-                <header className="sticky top-0 z-20 border-b border-neutral-200/60 dark:border-neutral-800 bg-white/60 dark:bg-neutral-950/60 backdrop-blur supports-[backdrop-filter]:bg-white/60">
-                    <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 h-16 flex items-center gap-4">
-                        <div className="flex items-center gap-3">
-                            {/* Aurora logo */}
-                            <div className="size-8 rounded-xl bg-gradient-to-tr from-emerald-400 via-cyan-400 to-violet-500 shadow-sm ring-1 ring-white/50 dark:ring-white/10" />
-                            {/* Wordmark */}
-                            <div className="font-bold text-lg tracking-tight">Finora</div>
-                            <div className="hidden sm:block text-sm text-neutral-500">Finance Meets Aurora</div>
+            <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50/30 to-cyan-50/20 dark:from-slate-950 dark:via-indigo-950/50 dark:to-emerald-950/30 text-neutral-900 dark:text-neutral-100 transition-colors duration-500 motion-reduce:transition-none relative overflow-hidden">
+                {/* Aurora Background Effects - Reduced for readability */}
+                <div className="absolute inset-0 overflow-hidden pointer-events-none">
+                    {/* Primary Aurora Wave - Much more subtle */}
+                    <div className="absolute -top-1/2 -left-1/2 w-[200%] h-[200%] bg-gradient-conic from-emerald-500/3 via-cyan-500/5 to-violet-500/3 dark:from-emerald-400/5 dark:via-cyan-400/7 dark:to-violet-400/5 animate-spin [animation-duration:60s] opacity-20" />
+
+                    {/* Secondary Aurora Glow - Reduced */}
+                    <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-radial from-pink-500/5 via-purple-500/3 to-transparent dark:from-pink-400/7 dark:via-purple-400/5 opacity-25 animate-pulse [animation-duration:4s]" />
+
+                    {/* Tertiary Aurora Shimmer - Reduced */}
+                    <div className="absolute bottom-0 left-0 w-80 h-80 bg-gradient-radial from-cyan-500/4 via-emerald-500/3 to-transparent dark:from-cyan-400/6 dark:via-emerald-400/5 opacity-30 animate-pulse [animation-duration:6s] [animation-delay:2s]" />
+
+                    {/* Aurora Particles - Much more subtle */}
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_80%,rgba(16,185,129,0.04),transparent_50%)] dark:bg-[radial-gradient(circle_at_20%_80%,rgba(16,185,129,0.06),transparent_50%)]" />
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_20%,rgba(139,92,246,0.04),transparent_50%)] dark:bg-[radial-gradient(circle_at_80%_20%,rgba(139,92,246,0.06),transparent_50%)]" />
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_60%_60%,rgba(6,182,212,0.03),transparent_50%)] dark:bg-[radial-gradient(circle_at_60%_60%,rgba(6,182,212,0.05),transparent_50%)]" />
+                </div>
+                {/* Top App Bar - Cleaned up */}
+                <header className="sticky top-0 z-20 border-b border-neutral-200/40 dark:border-neutral-800/40 bg-white/90 dark:bg-neutral-950/90 backdrop-blur-xl shadow-sm">
+                    <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 h-16 flex items-center">
+                        {/* Logo & Brand */}
+                        <div className="flex items-center gap-4">
+                            <div className="size-9 rounded-xl bg-gradient-to-tr from-emerald-400 via-cyan-400 to-violet-500 shadow-lg relative overflow-hidden group">
+                                {/* Single subtle shimmer */}
+                                <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/20 to-transparent animate-pulse [animation-duration:3s]" />
+                            </div>
+                            <div>
+                                <div className="font-bold text-lg text-neutral-900 dark:text-white">
+                                    Finora
+                                </div>
+                                <div className="hidden sm:block text-xs text-neutral-600 dark:text-neutral-400 -mt-0.5">
+                                    Finance Meets Aurora
+                                </div>
+                            </div>
                         </div>
 
-                        <nav className="ml-6 hidden md:flex items-center gap-4">
-                            <NavItem active={tab === "overview"} onClick={() => setTab("overview")}>
+                        {/* Navigation */}
+                        <nav className="ml-8 hidden md:flex items-center gap-1">
+                            <NavItem active={tab === "overview"} onClick={() => {
+                                console.log('Switching to Overview tab');
+                                setTab("overview");
+                            }}>
                                 Overview
                             </NavItem>
-                            <NavItem active={tab === "transactions"} onClick={() => setTab("transactions")}>
+                            <NavItem active={tab === "transactions"} onClick={() => {
+                                console.log('Switching to Transactions tab');
+                                setTab("transactions");
+                            }}>
                                 Transactions
                             </NavItem>
-                            <NavItem active={tab === "alerts"} onClick={() => setTab("alerts")}>
+                            <NavItem active={tab === "alerts"} onClick={() => {
+                                console.log('Switching to Alerts tab');
+                                setTab("alerts");
+                            }}>
                                 Alerts
                             </NavItem>
                         </nav>
 
-                        <div className="ml-auto flex items-center gap-2">
+                        {/* Controls */}
+                        <div className="ml-auto flex items-center gap-3">
+                            {/* Time Range Selector */}
                             <select
-                                className="h-9 rounded-lg border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                                className="h-9 rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 px-3 text-sm text-neutral-700 dark:text-neutral-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/50 transition-colors"
                                 value={range}
-                                onChange={(e) => setRange(e.target.value)}
+                                onChange={(e) => {
+                                    console.log('Range changed to:', e.target.value);
+                                    setRange(e.target.value);
+                                }}
                             >
                                 <option value="today">오늘</option>
                                 <option value="24h">최근 24시간</option>
@@ -212,37 +265,120 @@ export default function FinoraDashboardMockup() {
                                 <option value="30d">최근 30일</option>
                             </select>
 
+                            {/* Search Input */}
                             <div className="relative">
-                                <Search className="absolute left-2 top-1/2 -translate-y-1/2" size={16} />
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" size={14} />
                                 <input
                                     value={search}
-                                    onChange={(e) => setSearch(e.target.value)}
-                                    placeholder="검색: TX ID, 상태, 채널 등"
-                                    className="h-9 w-56 pl-7 rounded-lg border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                                    onChange={(e) => {
+                                        console.log('Search query changed to:', e.target.value);
+                                        setSearch(e.target.value);
+                                    }}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            console.log('Search submitted with query:', search);
+                                            e.currentTarget.blur();
+                                        }
+                                    }}
+                                    placeholder="검색..."
+                                    aria-label="트랜잭션 검색"
+                                    className="h-9 w-48 pl-8 pr-3 rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-sm text-neutral-700 dark:text-neutral-300 placeholder:text-neutral-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/50 transition-colors"
                                 />
                             </div>
 
+                            {/* Theme Toggle */}
                             <button
-                                onClick={() => setDark((d) => !d)}
+                                onClick={() => {
+                                    console.log('Theme toggled to:', !dark ? 'dark' : 'light');
+                                    setDark((d) => !d);
+                                }}
                                 aria-pressed={dark}
                                 title={dark ? "라이트 모드로" : "다크 모드로"}
-                                className="h-9 px-3 inline-flex items-center gap-1.5 rounded-lg border border-neutral-300 dark:border-neutral-800 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                                className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/50 transition-colors"
                             >
                                 {dark ? <Sun size={16} /> : <Moon size={16} />}
-                                <span className="hidden sm:inline">{dark ? "라이트" : "다크"}</span>
                             </button>
 
-                            <button
-                                className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-neutral-300 dark:border-neutral-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
-                                title="알림"
-                            >
-                                <Bell size={16} />
-                            </button>
+                            {/* Notifications */}
+                            <div className="relative" ref={notificationRef}>
+                                <button
+                                    onClick={() => {
+                                        console.log('Notifications toggled:', !showNotifications);
+                                        setShowNotifications(!showNotifications);
+                                    }}
+                                    className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/50 transition-colors relative"
+                                    title="알림"
+                                >
+                                    <Bell size={16} />
+                                    <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full" />
+                                </button>
+
+                                {/* Notification Dropdown */}
+                                {showNotifications && (
+                                    <motion.div
+                                        initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                                        exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                                        transition={{ duration: 0.2, ease: "easeOut" }}
+                                        className="absolute right-0 top-full mt-3 w-96 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-xl border border-neutral-200/50 dark:border-neutral-700/50 rounded-3xl shadow-2xl z-50 overflow-hidden"
+                                    >
+                                        <div className="p-6 border-b border-neutral-200/50 dark:border-neutral-700/50 bg-gradient-to-r from-white/50 to-neutral-50/50 dark:from-neutral-900/50 dark:to-neutral-800/50">
+                                            <div className="flex items-center justify-between">
+                                                <h3 className="text-lg font-bold text-neutral-900 dark:text-white">알림</h3>
+                                                <div className="flex items-center gap-2">
+                                                    <div className="w-2 h-2 bg-gradient-to-r from-red-400 to-red-500 rounded-full animate-pulse"></div>
+                                                    <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">실시간</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="max-h-80 overflow-y-auto">
+                                            <div className="p-5 hover:bg-gradient-to-r hover:from-red-50/70 hover:to-red-100/70 dark:hover:from-red-950/40 dark:hover:to-red-900/40 transition-all duration-300 border-b border-neutral-100/50 dark:border-neutral-800/50">
+                                                <div className="flex items-start gap-4">
+                                                    <div className="w-3 h-3 bg-gradient-to-r from-red-400 to-red-500 rounded-full mt-2 flex-shrink-0 shadow-lg shadow-red-500/30"></div>
+                                                    <div className="flex-1">
+                                                        <p className="text-base font-bold text-neutral-900 dark:text-white mb-2">오류율 임계치 초과</p>
+                                                        <div className="text-sm font-semibold text-red-700 dark:text-red-300 bg-red-100/80 dark:bg-red-900/50 px-3 py-1.5 rounded-lg inline-block">
+                                                            10분 전 · 구간: /payments/authorize
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div className="p-5 hover:bg-gradient-to-r hover:from-amber-50/70 hover:to-amber-100/70 dark:hover:from-amber-950/40 dark:hover:to-amber-900/40 transition-all duration-300 border-b border-neutral-100/50 dark:border-neutral-800/50">
+                                                <div className="flex items-start gap-4">
+                                                    <div className="w-3 h-3 bg-gradient-to-r from-amber-400 to-amber-500 rounded-full mt-2 flex-shrink-0 shadow-lg shadow-amber-500/30"></div>
+                                                    <div className="flex-1">
+                                                        <p className="text-base font-bold text-neutral-900 dark:text-white mb-2">평균 지연 상승</p>
+                                                        <div className="text-sm font-semibold text-amber-700 dark:text-amber-300 bg-amber-100/80 dark:bg-amber-900/50 px-3 py-1.5 rounded-lg inline-block">
+                                                            18분 전 · KakaoBank Channel
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div className="p-5 hover:bg-gradient-to-r hover:from-cyan-50/70 hover:to-cyan-100/70 dark:hover:from-cyan-950/40 dark:hover:to-cyan-900/40 transition-all duration-300">
+                                                <div className="flex items-start gap-4">
+                                                    <div className="w-3 h-3 bg-gradient-to-r from-cyan-400 to-cyan-500 rounded-full mt-2 flex-shrink-0 shadow-lg shadow-cyan-500/30"></div>
+                                                    <div className="flex-1">
+                                                        <p className="text-base font-bold text-neutral-900 dark:text-white mb-2">신규 배포 완료</p>
+                                                        <div className="text-sm font-semibold text-cyan-700 dark:text-cyan-300 bg-cyan-100/80 dark:bg-cyan-900/50 px-3 py-1.5 rounded-lg inline-block">
+                                                            30분 전 · core-api v0.2.1
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="p-4 border-t border-neutral-200/50 dark:border-neutral-700/50 bg-gradient-to-r from-white/50 to-neutral-50/50 dark:from-neutral-900/50 dark:to-neutral-800/50">
+                                            <button className="w-full py-2 px-4 text-sm font-semibold text-white bg-gradient-to-r from-emerald-500 via-cyan-500 to-blue-500 hover:from-emerald-600 hover:via-cyan-600 hover:to-blue-600 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl">
+                                                모든 알림 보기
+                                            </button>
+                                        </div>
+                                    </motion.div>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </header>
 
-                <main className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6">
+                <main className="relative z-10 mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
                     {tab === "overview" && <Overview kpis={kpis} rows={filteredRows} />}
                     {tab === "transactions" && <Transactions rows={filteredRows} />}
                     {tab === "alerts" && <Alerts />}
@@ -252,257 +388,18 @@ export default function FinoraDashboardMockup() {
     );
 }
 
-function NavItem({ active, children, onClick }) {
+function NavItem({ active, children, onClick }: { active: boolean; children: React.ReactNode; onClick: () => void }) {
     return (
         <button
             onClick={onClick}
             className={[
-                "h-9 px-3 rounded-lg text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400",
+                "h-9 px-4 rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/50",
                 active
-                    ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
-                    : "hover:bg-neutral-100 dark:hover:bg-neutral-900",
+                    ? "bg-neutral-900 dark:bg-white text-white dark:text-neutral-900"
+                    : "text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800",
             ].join(" ")}
         >
             {children}
         </button>
-    );
-}
-
-function Overview({ kpis, rows }) {
-    return (
-        <div className="grid gap-6">
-            {/* KPI Cards */}
-            <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                {kpis.map((k, i) => (
-                    <motion.div
-                        key={k.label}
-                        initial={{ opacity: 0, y: 8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: i * 0.05 }}
-                    >
-                        <Card>
-                            <div className="text-sm text-neutral-500 dark:text-neutral-400">{k.label}</div>
-                            <div className="text-3xl font-bold mt-1">{k.value}</div>
-                            {k.delta ? (
-                                <div className="text-xs mt-1 text-neutral-500 dark:text-neutral-400">{k.delta}</div>
-                            ) : null}
-                        </Card>
-                    </motion.div>
-                ))}
-            </section>
-
-            {/* Realtime Chart Placeholder */}
-            <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <Card className="lg:col-span-2">
-                    <div className="flex items-center justify-between mb-3">
-                        <h2 className="text-lg font-semibold">실시간 처리량</h2>
-                        <div className="text-xs text-neutral-500">라인 차트 영역(추후 Recharts)</div>
-                    </div>
-                    <ChartPlaceholder />
-                </Card>
-
-                <Card>
-                    <h2 className="text-lg font-semibold mb-3">이벤트/알림</h2>
-                    <ul className="space-y-2 text-sm">
-                        <li className="flex items-start gap-2">
-                            <span className="mt-1 size-2 rounded-full bg-red-500" />
-                            <div>
-                                <div className="font-medium">오류율 임계치 초과 감지</div>
-                                <div className="text-neutral-500 text-xs">10분 전 · 구간: /payments/authorize</div>
-                            </div>
-                        </li>
-                        <li className="flex items-start gap-2">
-                            <span className="mt-1 size-2 rounded-full bg-amber-500" />
-                            <div>
-                                <div className="font-medium">평균 지연 상승</div>
-                                <div className="text-neutral-500 text-xs">18분 전 · OpenAPI Channel</div>
-                            </div>
-                        </li>
-                        <li className="flex items-start gap-2">
-                            <span className="mt-1 size-2 rounded-full bg-cyan-500" />
-                            <div>
-                                <div className="font-medium">신규 배포 완료</div>
-                                <div className="text-neutral-500 text-xs">30분 전 · core-api v0.2.1</div>
-                            </div>
-                        </li>
-                    </ul>
-                </Card>
-            </section>
-
-            {/* Recent Transactions */}
-            <section>
-                <Card>
-                    <div className="flex items-center justify-between mb-3">
-                        <h2 className="text-lg font-semibold">최근 트랜잭션</h2>
-                        <div className="text-xs text-neutral-500">테이블 영역(추후 TanStack Table)</div>
-                    </div>
-                    <Table rows={rows} />
-                </Card>
-            </section>
-        </div>
-    );
-}
-
-function Transactions({ rows }) {
-    return (
-        <div className="grid gap-6">
-            <Card>
-                <div className="flex items-center justify-between mb-3">
-                    <h2 className="text-lg font-semibold">트랜잭션 탐색</h2>
-                    <div className="text-xs text-neutral-500">필터/검색 조합 예시</div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
-                    <Select label="상태">
-                        <option>전체</option>
-                        <option>OK</option>
-                        <option>ERROR</option>
-                    </Select>
-                    <Select label="채널">
-                        <option>전체</option>
-                        <option>OpenAPI</option>
-                        <option>Internal</option>
-                    </Select>
-                    <Input label="최소 금액" placeholder="0" />
-                    <Input label="최대 금액" placeholder="1,000,000" />
-                </div>
-                <Table rows={rows} />
-            </Card>
-        </div>
-    );
-}
-
-function Alerts() {
-    return (
-        <div className="grid gap-6">
-            <Card>
-                <h2 className="text-lg font-semibold mb-3">알림 정책</h2>
-                <ul className="text-sm list-disc pl-5 space-y-1">
-                    <li>오류율(%) &gt; 0.2% · 5분 평균</li>
-                    <li>평균 지연(ms) &gt; 250ms · 5분 평균</li>
-                    <li>처리량(tps) 급락 · 최근 3분 대비 -30%</li>
-                </ul>
-            </Card>
-            <Card>
-                <h2 className="text-lg font-semibold mb-3">최근 알림</h2>
-                <ul className="space-y-2 text-sm">
-                    <li className="flex items-start gap-2">
-                        <span className="mt-1 size-2 rounded-full bg-red-500" />
-                        <div>
-                            <div className="font-medium">오류율 임계치 초과</div>
-                            <div className="text-neutral-500 text-xs">09:13 · core-api</div>
-                        </div>
-                    </li>
-                    <li className="flex items-start gap-2">
-                        <span className="mt-1 size-2 rounded-full bg-amber-500" />
-                        <div>
-                            <div className="font-medium">지연 상승</div>
-                            <div className="text-neutral-500 text-xs">08:57 · search-api</div>
-                        </div>
-                    </li>
-                </ul>
-            </Card>
-        </div>
-    );
-}
-
-function Card({ children, className = "" }) {
-    return (
-        <div className={"rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4 " + className}>
-            {children}
-        </div>
-    );
-}
-
-function ChartPlaceholder() {
-    return (
-        <div className="h-64 w-full rounded-xl bg-neutral-100 dark:bg-neutral-800 grid grid-cols-12 items-end gap-1 p-3">
-            {Array.from({ length: 40 }).map((_, i) => (
-                <div
-                    key={i}
-                    className="rounded-t bg-neutral-300/80 dark:bg-neutral-700"
-                    style={{ height: `${20 + Math.random() * 80}%` }}
-                />
-            ))}
-        </div>
-    );
-}
-
-function Table({ rows }) {
-    if (!rows || rows.length === 0) {
-        return (
-            <div className="rounded-xl border border-dashed border-neutral-300 dark:border-neutral-800 p-10 text-center text-sm text-neutral-500">
-                조건에 맞는 트랜잭션이 없습니다.
-            </div>
-        );
-    }
-    return (
-        <div className="overflow-x-auto rounded-xl border border-neutral-200 dark:border-neutral-800">
-            <table className="min-w-full text-sm">
-                <thead className="bg-neutral-50 dark:bg-neutral-950/40 text-left">
-                <tr className="border-b border-neutral-200 dark:border-neutral-800">
-                    <Th>TX ID</Th>
-                    <Th>시각</Th>
-                    <Th>금액</Th>
-                    <Th>상태</Th>
-                    <Th>채널</Th>
-                </tr>
-                </thead>
-                <tbody>
-                {rows.map((r) => (
-                    <tr
-                        key={r.id}
-                        className="border-b last:border-0 border-neutral-200 dark:border-neutral-800 hover:bg-neutral-50/60 dark:hover:bg-neutral-900/40"
-                    >
-                        <Td>{r.id}</Td>
-                        <Td>{r.time}</Td>
-                        <Td>{Number(r.amount).toLocaleString()}</Td>
-                        <Td>
-                <span
-                    className={
-                        "inline-flex items-center gap-2 px-2 py-0.5 rounded-lg text-xs " +
-                        (r.status === "ERROR"
-                            ? "bg-red-500/10 text-red-600 dark:text-red-400"
-                            : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400")
-                    }
-                >
-                  <span className="inline-block size-1.5 rounded-full bg-current" /> {r.status}
-                </span>
-                        </Td>
-                        <Td>{r.channel}</Td>
-                    </tr>
-                ))}
-                </tbody>
-            </table>
-        </div>
-    );
-}
-
-function Th({ children }) {
-    return <th className="py-2.5 px-3 font-medium text-neutral-600 dark:text-neutral-300">{children}</th>;
-}
-function Td({ children }) {
-    return <td className="py-2.5 px-3 text-neutral-800 dark:text-neutral-200">{children}</td>;
-}
-
-function Input({ label, ...props }) {
-    return (
-        <label className="text-sm">
-            {label ? <div className="mb-1 text-neutral-500 dark:text-neutral-400">{label}</div> : null}
-            <input
-                {...props}
-                className="h-9 w-full rounded-lg border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
-            />
-        </label>
-    );
-}
-
-function Select({ label, children }) {
-    return (
-        <label className="text-sm">
-            {label ? <div className="mb-1 text-neutral-500 dark:text-neutral-400">{label}</div> : null}
-            <select className="h-9 w-full rounded-lg border border-neutral-300 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">
-                {children}
-            </select>
-        </label>
     );
 }
